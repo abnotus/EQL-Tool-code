@@ -199,7 +199,6 @@ main {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: var(--node-gap) 22px;
-  align-items: start;
 }
 
 .node {
@@ -212,6 +211,7 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-align: center;
   gap: 4px;
   cursor: pointer;
