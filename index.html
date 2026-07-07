@@ -42,6 +42,7 @@
   </div>
 
   <div class="topbar-actions">
+    <a class="btn" href="https://eqlwiki.com/Alternate_Advancement" target="_blank" rel="noopener">Source: eqlwiki</a>
     <button class="btn toggle" id="browseToggle">Browse All AAs</button>
     <button class="btn primary" id="exportBtn">Export</button>
     <button class="btn" id="importBtn">Import</button>
@@ -49,6 +50,11 @@
     <button class="btn danger" id="resetBtn">Reset Build</button>
   </div>
 </header>
+
+<div id="disclaimerBanner" class="disclaimer-banner hidden">
+  <span>Some values marked <b>?</b> are undocumented on the source wiki and treated as 0 pts until confirmed. All data is scraped from <a href="https://eqlwiki.com/Alternate_Advancement" target="_blank" rel="noopener">eqlwiki.com/Alternate_Advancement</a> and may be incomplete or out of date during beta.</span>
+  <button id="dismissBannerBtn" aria-label="Dismiss">&times;</button>
+</div>
 
 <nav class="tabs" id="tabs"></nav>
 

@@ -129,6 +129,12 @@ select:focus, input:focus {
 
 .btn:hover { background: #222225; border-color: var(--accent-bright); }
 
+a.btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
 .btn.primary {
   background: linear-gradient(180deg, #3a1c1c, #241212);
   border-color: var(--accent);
@@ -145,6 +151,38 @@ select:focus, input:focus {
   border-color: var(--accent-bright);
   font-weight: 600;
 }
+
+/* ---------- Disclaimer banner ---------- */
+.disclaimer-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 18px;
+  background: #241a10;
+  border-bottom: 1px solid #4a3a20;
+  color: #d8bd8a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.disclaimer-banner a {
+  color: #f0c869;
+  text-decoration: underline;
+}
+
+.disclaimer-banner span { flex: 1; }
+
+.disclaimer-banner button {
+  background: transparent;
+  border: none;
+  color: #d8bd8a;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.disclaimer-banner button:hover { color: #f0c869; }
 
 /* ---------- Tabs ---------- */
 nav.tabs {

@@ -1,6 +1,7 @@
 (function () {
 "use strict";
 const STORAGE_KEY = "eql_aa_builder_v1";
+const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed";
 const CLASS_SLOT_KEYS = ["classSlot0", "classSlot1", "classSlot2"];
 const ALL_SPEND_CATEGORIES = ["general", "archetype", "special", "classSlot0", "classSlot1", "classSlot2"];
 let state = {
@@ -249,6 +250,8 @@ el.browseSearch = document.getElementById("browseSearch");
 el.browseFilter = document.getElementById("browseFilter");
 el.browseGrid = document.getElementById("browseGrid");
 el.toast = document.getElementById("toast");
+el.disclaimerBanner = document.getElementById("disclaimerBanner");
+el.dismissBannerBtn = document.getElementById("dismissBannerBtn");
 }
 function renderAll() {
 renderTopbar();
@@ -659,6 +662,10 @@ saveLocal();
 renderAll();
 showToast("Build reset");
 });
+el.dismissBannerBtn.addEventListener("click", () => {
+el.disclaimerBanner.classList.add("hidden");
+try { localStorage.setItem(DISCLAIMER_DISMISSED_KEY, "1"); } catch (e) { /* storage unavailable, ignore */ }
+});
 el.browseSearch.addEventListener("input", () => {
 state.browseSearch = el.browseSearch.value;
 renderBrowse();
@@ -686,6 +693,11 @@ cacheDom();
 populateStaticControls();
 applyLoaded(loadLocal());
 wireEvents();
+try {
+if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");
+} catch (e) {
+el.disclaimerBanner.classList.remove("hidden");
+}
 renderAll();
 }
 document.addEventListener("DOMContentLoaded", init);
