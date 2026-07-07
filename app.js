@@ -60,6 +60,17 @@ return String(str == null ? "" : str)
 function iconLetter(name) {
 return (name || "?").trim().charAt(0).toUpperCase();
 }
+function highlightRankValue(text, rank) {
+const escaped = escapeHtml(text);
+if (!rank || rank < 1) return escaped;
+return escaped.replace(/\d+(?:\.\d+)?%?(?:\/(?:\d+(?:\.\d+)?%?|\?)){1,}/g, (match) => {
+const parts = match.split("/");
+const idx = rank - 1;
+if (idx < 0 || idx >= parts.length) return match;
+parts[idx] = `<span class="rank-highlight">${parts[idx]}</span>`;
+return parts.join("/");
+});
+}
 function classSlotIndex(catKey) {
 const i = CLASS_SLOT_KEYS.indexOf(catKey);
 return i;
@@ -384,7 +395,7 @@ const nextCost = rank < aa.ranks ? costNum(aa.costs[rank]) : null;
 const dependedOn = rank > 0 && isDependedOn(sel.category, sel.idx, rank);
 let html = `<h2>${escapeHtml(aa.name)}</h2>`;
 html += `<div class="meta">${escapeHtml(labelFor(sel.category))} &middot; Level ${escapeHtml(aa.levelReq)}+</div>`;
-html += `<div class="desc">${escapeHtml(aa.description)}</div>`;
+html += `<div class="desc">${highlightRankValue(aa.description, rank)}</div>`;
 if (aa.prereq) {
 html += `<div class="req-line ${resolved ? "" : "warn"}"><b>Requires:</b> ${escapeHtml(aa.prereq)}</div>`;
 }
@@ -474,7 +485,7 @@ html += `<h3 class="summary-section-title">${escapeHtml(label)}</h3>`;
 html += `<div class="browse-grid">` + picked.map(({ aa, rank }) => `
         <div class="browse-card">
           <div class="top"><span class="name">${escapeHtml(aa.name)}${aa.auto ? ' <span style="color:#c9c9ce; font-size:10px; font-weight:700;">(AUTO)</span>' : ""}</span><span class="cat">Rank ${rank}/${aa.ranks}</span></div>
-          <div class="desc">${escapeHtml(aa.description)}</div>
+          <div class="desc">${highlightRankValue(aa.description, rank)}</div>
         </div>`).join("") + `</div>`;
 });
 el.summaryContent.innerHTML = anyPicked ? html : '<div class="empty">No AAs selected yet &mdash; spend some points in the calculator, then check back here.</div>';
