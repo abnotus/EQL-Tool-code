@@ -495,8 +495,18 @@ function renderTree(catKey) {
     return;
   }
 
+  // Selecting a node fully rebuilds this grid, which would otherwise drop keyboard
+  // focus back to nowhere — remember whether focus was in the tree so it can be
+  // restored to the newly-rendered matching node below.
+  const hadFocusInTree = el.treeWrap.contains(document.activeElement);
+
   const grid = document.createElement("div");
   grid.className = "tree-grid";
+
+  function selectNode(idx) {
+    state.selectedNode = { category: catKey, idx };
+    renderAll();
+  }
 
   list.forEach((aa, idx) => {
     const rank = effectiveRank(catKey, idx);
@@ -506,6 +516,10 @@ function renderTree(catKey) {
 
     const node = document.createElement("div");
     node.className = "node";
+    node.tabIndex = 0;
+    node.setAttribute("role", "button");
+    node.setAttribute("aria-label", `${aa.name}, rank ${rank} of ${aa.ranks}`);
+    node.dataset.idx = String(idx);
     if (aa.auto && !autoBelowLevel) node.classList.add("auto");
     else if (!aa.auto && rank >= aa.ranks) node.classList.add("maxed");
     if (locked) node.classList.add("locked");
@@ -538,15 +552,22 @@ function renderTree(catKey) {
       tag.textContent = aa.costs[rank];
       node.appendChild(tag);
     }
-    node.addEventListener("click", () => {
-      state.selectedNode = { category: catKey, idx };
-      renderAll();
+    node.addEventListener("click", () => selectNode(idx));
+    node.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+      e.preventDefault();
+      selectNode(idx);
     });
     grid.appendChild(node);
   });
 
   el.treeWrap.innerHTML = "";
   el.treeWrap.appendChild(grid);
+
+  if (hadFocusInTree && state.selectedNode && state.selectedNode.category === catKey) {
+    const focusTarget = grid.querySelector(`[data-idx="${state.selectedNode.idx}"]`);
+    if (focusTarget) focusTarget.focus();
+  }
 }
 
 function renderSidePanel() {
