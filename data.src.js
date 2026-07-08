@@ -123,7 +123,7 @@ const AA_DATA = {
       { name: "Conjurer's Efficiency", ranks: 5, costs: ["3","?","?","?","?"], levelReq: "1", description: "Prevents components used in the summoning of pets from being expended." },
       { name: "Elemental Form", ranks: 1, costs: ["3"], levelReq: "40", description: "Activated: transforms you into an Air, Earth, Fire, or Water Elemental. Increases the max your stats can be raised to by 5 points, increases spell casting level by 1, and grants a 10 point damage shield." },
       { name: "Turn Summoned", ranks: 3, costs: ["3","?","?"], levelReq: "45", description: "Activated: deals 400 damage to your elemental target, with a 5% chance to trigger a critical 32000 damage effect. (Refresh 0:05:00)" },
-      { name: "Unbound Companion", ranks: 3, costs: ["0","?","?"], levelReq: "12", auto: true, description: "Increases the chance that your pet will land a critical hit by 2/4/6%. (Ranks 2-3 cost unconfirmed on wiki but follow the same 'Unbound' free-scaling pattern as its sibling abilities.)" }
+      { name: "Unbound Companion", ranks: 1, costs: ["0"], levelReq: "12", auto: true, description: "Increases the chance that your pet will land a critical hit by 2%." }
     ],
     "Monk": [
       { name: "Dragon Force", ranks: 1, costs: ["5"], levelReq: "15", description: "Activated: pushes your target backwards and deals 10 damage." },
@@ -147,7 +147,7 @@ const AA_DATA = {
       { name: "Valiant Steed", ranks: 1, costs: ["9"], levelReq: "50", prereq: "Requires Holy Steed at level 1", description: "Activated: summons the bridle of a very fast Valiant Unicorn." }
     ],
     "Ranger": [
-      { name: "Hunter's Attack Power", ranks: 26, costs: Array(26).fill("0"), levelReq: "8", auto: true, description: "Increases your attack power by 20 points per rank." },
+      { name: "Hunter's Attack Power", ranks: 26, costs: Array(26).fill("0"), levelReq: "8", auto: true, description: "Increases your attack power by 4 points per rank." },
       { name: "Innate Called Shot", ranks: 1, costs: ["0"], levelReq: "1", auto: true, description: "Grants the Ranger the ability to unleash a double bow shot on stationary targets." },
       { name: "Unbounded Strikethrough", ranks: 3, costs: ["0","0","0"], levelReq: "12", auto: true, description: "Increases the chance you will strike through your opponent's active defenses (dodge, block, parry, riposte) by 10/20/30%." },
       { name: "Weapon Mastery of the Scout", ranks: 3, costs: ["3","3","3"], levelReq: "1", description: "Increases the base damage of your archery attacks by 30/60/90%." }
