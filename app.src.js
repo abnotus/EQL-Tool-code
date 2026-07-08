@@ -4,7 +4,9 @@
   const STORAGE_KEY = "eql_aa_builder_v1";
   const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed";
   const CLASS_SLOT_KEYS = ["classSlot0", "classSlot1", "classSlot2"];
-  const ALL_SPEND_CATEGORIES = ["general", "archetype", "special", "classSlot0", "classSlot1", "classSlot2"];
+  // Canonical display/iteration order for the 6 real AA categories (excludes the
+  // Summary/Progression meta-views, which aren't AA categories).
+  const AA_CATEGORY_KEYS = ["general", "archetype", ...CLASS_SLOT_KEYS, "special"];
 
   let state = {
     selectedClasses: [CLASS_LIST[0], CLASS_LIST[1], CLASS_LIST[2]],
@@ -104,6 +106,16 @@
     return catKey;
   }
 
+  // Short form used for tab labels and Summary section headers (no " AA" suffix).
+  function shortCategoryLabel(catKey) {
+    if (catKey === "general") return "General";
+    if (catKey === "archetype") return "Archetype";
+    if (catKey === "special") return "Special";
+    const slot = classSlotIndex(catKey);
+    if (slot >= 0) return state.selectedClasses[slot];
+    return catKey;
+  }
+
   function getList(catKey) {
     const slot = classSlotIndex(catKey);
     if (slot >= 0) return AA_DATA.classes[state.selectedClasses[slot]] || [];
@@ -186,7 +198,7 @@
 
   function spentPoints() {
     let total = 0;
-    ALL_SPEND_CATEGORIES.forEach((catKey) => {
+    AA_CATEGORY_KEYS.forEach((catKey) => {
       const list = getList(catKey);
       const store = getRanksStore(catKey);
       list.forEach((aa, idx) => {
@@ -254,7 +266,7 @@
 
   function isDependedOn(category, idx, currentRank) {
     const newRank = currentRank - 1;
-    for (const catKey of ALL_SPEND_CATEGORIES) {
+    for (const catKey of AA_CATEGORY_KEYS) {
       const list = getList(catKey);
       for (let i = 0; i < list.length; i++) {
         const aa = list[i];
@@ -394,7 +406,7 @@
 
   function countPicked() {
     let n = 0;
-    ["general", "archetype", ...CLASS_SLOT_KEYS, "special"].forEach((catKey) => {
+    AA_CATEGORY_KEYS.forEach((catKey) => {
       getList(catKey).forEach((aa, idx) => { if (effectiveRank(catKey, idx) > 0) n++; });
     });
     return n;
@@ -402,12 +414,7 @@
 
   function renderTabs() {
     const tabDefs = [
-      { key: "general", label: "General" },
-      { key: "archetype", label: "Archetype" },
-      { key: "classSlot0", label: state.selectedClasses[0] },
-      { key: "classSlot1", label: state.selectedClasses[1] },
-      { key: "classSlot2", label: state.selectedClasses[2] },
-      { key: "special", label: "Special" },
+      ...AA_CATEGORY_KEYS.map((key) => ({ key, label: shortCategoryLabel(key) })),
       { key: "summary", label: "Summary" },
       { key: "progression", label: "Progression" }
     ];
@@ -579,7 +586,7 @@
     el.browseGrid.innerHTML = filtered.length
       ? filtered.map(({ cat, aa }) => `
         <div class="browse-card">
-          <div class="top"><span class="name">${escapeHtml(aa.name)}${aa.auto ? ' <span style="color:#c9c9ce; font-size:10px; font-weight:700;">(AUTO)</span>' : ""}</span><span class="cat">${escapeHtml(cat)}</span></div>
+          <div class="top"><span class="name">${escapeHtml(aa.name)}${aa.auto ? ' <span class="auto-badge">(AUTO)</span>' : ""}</span><span class="cat">${escapeHtml(cat)}</span></div>
           <div class="desc">${escapeHtml(aa.description)}</div>
           <div class="info">Ranks: ${aa.ranks} &middot; Cost/rank: ${aa.costs.map(escapeHtml).join(" / ")} &middot; Level ${escapeHtml(aa.levelReq)}+${aa.prereq ? " &middot; Requires: " + escapeHtml(aa.prereq) : ""}</div>
         </div>`).join("")
@@ -591,14 +598,7 @@
     const remaining = state.totalPoints - spent;
     el.summaryHeader.innerHTML = `<div class="summary-meta">Classes: <b>${state.selectedClasses.map(escapeHtml).join(" / ")}</b> &middot; Character Level <b>${state.charLevel}</b> &middot; Points Spent: <b>${spent} / ${state.totalPoints}</b> (${remaining} remaining)</div>`;
 
-    const sections = [
-      { key: "general", label: "General" },
-      { key: "archetype", label: "Archetype" },
-      { key: "classSlot0", label: state.selectedClasses[0] },
-      { key: "classSlot1", label: state.selectedClasses[1] },
-      { key: "classSlot2", label: state.selectedClasses[2] },
-      { key: "special", label: "Special" }
-    ];
+    const sections = AA_CATEGORY_KEYS.map((key) => ({ key, label: shortCategoryLabel(key) }));
 
     let html = "";
     let anyPicked = false;
@@ -610,7 +610,7 @@
       html += `<h3 class="summary-section-title">${escapeHtml(label)}</h3>`;
       html += `<div class="browse-grid">` + picked.map(({ aa, rank }) => `
         <div class="browse-card">
-          <div class="top"><span class="name">${escapeHtml(aa.name)}${aa.auto ? ' <span style="color:#c9c9ce; font-size:10px; font-weight:700;">(AUTO)</span>' : ""}</span><span class="cat">Rank ${rank}/${aa.ranks}</span></div>
+          <div class="top"><span class="name">${escapeHtml(aa.name)}${aa.auto ? ' <span class="auto-badge">(AUTO)</span>' : ""}</span><span class="cat">Rank ${rank}/${aa.ranks}</span></div>
           <div class="desc">${highlightRankValue(aa.description, rank)}</div>
         </div>`).join("") + `</div>`;
     });
@@ -703,7 +703,7 @@
     lines.push(`Exported: ${new Date().toLocaleString()}`);
     lines.push("");
 
-    ["general", "archetype", ...CLASS_SLOT_KEYS, "special"].forEach((catKey) => {
+    AA_CATEGORY_KEYS.forEach((catKey) => {
       const list = getList(catKey);
       const spentAAs = list.map((aa, idx) => ({ aa, rank: effectiveRank(catKey, idx) })).filter((x) => x.rank > 0);
       if (!spentAAs.length) return;

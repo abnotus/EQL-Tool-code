@@ -225,6 +225,16 @@ main {
   overflow: hidden;
 }
 
+.view-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.view-panel-col {
+  flex-direction: column;
+}
+
 #treeWrap {
   flex: 1;
   overflow: auto;
@@ -345,6 +355,12 @@ main {
   color: #c9c9ce;
   font-weight: 700;
   letter-spacing: 0.5px;
+}
+
+.auto-badge {
+  color: #c9c9ce;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 /* ---------- Side panel ---------- */

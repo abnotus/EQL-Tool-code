@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>EverQuest Legends - AA Calculator</title>
-<link rel="stylesheet" href="styles.css?v=2695f793" />
+<link rel="stylesheet" href="styles.css?v=6cc12ea9" />
 </head>
 <body>
 
@@ -59,12 +59,12 @@
 <nav class="tabs" id="tabs"></nav>
 
 <main>
-  <div id="calculatorView" style="display:flex; flex:1; min-height:0;">
+  <div id="calculatorView" class="view-panel">
     <div id="treeWrap"></div>
     <aside id="sidePanel"></aside>
   </div>
 
-  <div id="browseView" class="hidden" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+  <div id="browseView" class="view-panel view-panel-col hidden">
     <div id="browseWrap">
       <div class="browse-controls">
         <input type="text" id="browseSearch" placeholder="Search AA name or description..." />
@@ -74,14 +74,14 @@
     </div>
   </div>
 
-  <div id="summaryView" class="hidden" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+  <div id="summaryView" class="view-panel view-panel-col hidden">
     <div id="summaryWrap">
       <div id="summaryHeader"></div>
       <div id="summaryContent"></div>
     </div>
   </div>
 
-  <div id="progressionView" class="hidden" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+  <div id="progressionView" class="view-panel view-panel-col hidden">
     <div id="progressionWrap">
       <div class="progression-hint">The order you've spent points in, for planning a leveling path. Reorder with the arrows &mdash; ranks of the same AA always stay in order, and a &#9888; means a step's prerequisite hasn't been reached yet at that point in the sequence.</div>
       <div id="progressionContent"></div>
@@ -117,7 +117,7 @@
   </div>
 </div>
 
-<script src="data.js?v=2695f793"></script>
-<script src="app.js?v=2695f793"></script>
+<script src="data.js?v=6cc12ea9"></script>
+<script src="app.js?v=6cc12ea9"></script>
 </body>
 </html>
