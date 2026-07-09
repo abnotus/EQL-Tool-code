@@ -131,20 +131,38 @@ DATA_ENTRY_NAME = re.compile(r'name:\s*"((?:[^"\\]|\\.)*)"')
 DATA_ENTRY_AUTO = re.compile(r'\bauto:\s*true')
 
 
+MIN_EXPECTED_AA_ENTRIES = 100  # currently 136; floor with headroom for legitimate removals
+
+
 def check_prereq_disambiguation_invariant(data_src: str):
     """
     resolvePrereqTarget (src/logic.js) resolves a prereq by name within a
-    category, and when a name repeats (e.g. Cleric's two "Divine Aura" rows)
-    it deterministically prefers whichever occurrence is NOT auto-granted -
-    on the reasoning that a prereq gating something you get for free anyway
-    isn't a meaningful gate. That tie-break only gives a well-defined answer
-    if every repeated name has EXACTLY ONE non-auto occurrence. Checked here,
-    at the point data.src.js actually changes, so a future edit that breaks
-    the assumption fails the build loudly instead of letting a prereq
-    silently resolve to whichever occurrence happens to come first.
+    single category (its own class list, or general/archetype/special - never
+    across two different classes, and a class AA's own list is always
+    searched first), and when a name repeats WITHIN that one category (e.g.
+    Cleric's two "Divine Aura" rows) it deterministically prefers whichever
+    occurrence is NOT auto-granted, on the reasoning that a prereq gating
+    something you get for free anyway isn't a meaningful gate. That tie-break
+    only gives a well-defined answer if every name repeated *within the same
+    category* has EXACTLY ONE non-auto occurrence - checked here.
+
+    This is deliberately scoped per-category, not a global name-uniqueness
+    check: a name can legitimately repeat *across* categories (e.g. "Quick
+    Evacuation" exists in both Druid and Wizard) without being ambiguous,
+    because a class AA's prereq always resolves within its own class first
+    and never falls through to a different class's list. Don't read a clean
+    result here as "every AA name in the game is unique" - it isn't, and
+    doesn't need to be.
+
+    This is a regex over source text, not a real parser, so it has the same
+    failure mode wiki-sync's table parser had: a format change it doesn't
+    recognize makes it match nothing and report zero problems, which looks
+    identical to "no problems." The entry-count floor below exists so that
+    "found nothing to check" fails loudly instead of passing silently.
     """
     current_cat = None
     buckets = {}
+    total_entries = 0
     for line in data_src.split("\n"):
         s = line.strip()
         m = DATA_CATEGORY_START.match(s)
@@ -160,7 +178,16 @@ def check_prereq_disambiguation_invariant(data_src: str):
         nm = DATA_ENTRY_NAME.search(s)
         if not nm or not current_cat:
             continue
+        total_entries += 1
         buckets.setdefault(current_cat, []).append((nm.group(1), bool(DATA_ENTRY_AUTO.search(s))))
+
+    if total_entries < MIN_EXPECTED_AA_ENTRIES:
+        return [
+            f"  Only recognized {total_entries} AA entries in data.src.js (expected at least "
+            f"{MIN_EXPECTED_AA_ENTRIES}) - this checker's regex almost certainly stopped matching "
+            "the current format rather than the dataset actually shrinking. Fix the regexes "
+            "above before trusting this check (or anything else that regex-parses data.src.js)."
+        ]
 
     problems = []
     for cat, entries in buckets.items():
