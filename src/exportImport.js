@@ -46,13 +46,24 @@ export function buildShareUrl() {
   return url.toString();
 }
 
+// "N picks from that save no longer exist in the current data and were
+// skipped", or "" if nothing was dropped. Shared wording for every place
+// applyLoaded's result gets surfaced to the user.
+function droppedPicksSuffix(result) {
+  const n = result.droppedRanks;
+  if (!n) return "";
+  return ` (${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped)`;
+}
+
 // Called once on startup. If the URL has a ?build= param, offers to load it — with
 // a confirmation if it would clobber an existing non-empty build — then strips the
-// param from the address bar either way so a refresh doesn't re-prompt.
+// param from the address bar either way so a refresh doesn't re-prompt. Returns
+// true if a shared build was actually applied (so callers know local storage's
+// load got superseded), false otherwise.
 export function applySharedBuildFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("build");
-  if (!raw) return;
+  if (!raw) return false;
 
   let json = null;
   try {
@@ -61,15 +72,17 @@ export function applySharedBuildFromUrl() {
     json = null;
   }
 
+  let applied = false;
   if (json) {
     const hasExisting = spentPoints() > 0;
     const proceed = !hasExisting || confirm("Load the shared build from this link? This will replace your current build. Export your current build first if you want to keep it.");
     if (proceed) {
-      applyLoaded(json);
+      const result = applyLoaded(json);
       state.selectedNode = null;
       clearLastMutation();
       saveLocal();
-      showToast("Loaded shared build from link");
+      showToast(`Loaded shared build from link${droppedPicksSuffix(result)}`);
+      applied = true;
     }
   } else {
     showToast("That share link's build data looks invalid");
@@ -78,6 +91,7 @@ export function applySharedBuildFromUrl() {
   const cleanUrl = new URL(window.location.href);
   cleanUrl.searchParams.delete("build");
   window.history.replaceState({}, "", cleanUrl.toString());
+  return applied;
 }
 
 export function buildExportText() {
@@ -191,12 +205,12 @@ export function importBuildFromText(text) {
     // pads to length%4, which export-text codes already satisfy), so it's
     // safe to always apply regardless of which format `code` came from.
     const json = decodeBuildCode(fromBase64Url(code));
-    applyLoaded(json);
+    const result = applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();
     saveLocal();
     renderAll();
-    showToast("Build imported");
+    showToast(`Build imported${droppedPicksSuffix(result)}`);
     return true;
   } catch (e) {
     showToast("Failed to read build text");

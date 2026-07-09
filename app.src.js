@@ -256,14 +256,22 @@ function clampRankValue(scope, className, idx, rawValue) {
   return Math.max(0, Math.min(aa.ranks, n));
 }
 
+// Returns { ranks, dropped } — `dropped` is how many saved rank entries had a
+// key that no longer resolves to any current AA (renamed/removed since the
+// save was made). Every key here represents at least one spent point
+// (changeRank deletes a store entry the moment it hits 0), so a drop always
+// means real invested points just vanished from the build — worth telling
+// the user about instead of leaving them to notice a lower total on their own.
 function deserializeRanks(saved, resolveIdx) {
   const out = { general: {}, archetype: {}, special: {}, classes: {} };
-  if (!saved || typeof saved !== "object") return out;
+  let dropped = 0;
+  if (!saved || typeof saved !== "object") return { ranks: out, dropped };
   ["general", "archetype", "special"].forEach((scope) => {
     const store = saved[scope] || {};
     Object.keys(store).forEach((k) => {
       const idx = resolveIdx(scope, null, k);
       if (idx >= 0) out[scope][idx] = clampRankValue(scope, null, idx, store[k]);
+      else dropped++;
     });
   });
   const classes = saved.classes || {};
@@ -273,10 +281,11 @@ function deserializeRanks(saved, resolveIdx) {
     Object.keys(store).forEach((k) => {
       const idx = resolveIdx("class", className, k);
       if (idx >= 0) outStore[idx] = clampRankValue("class", className, idx, store[k]);
+      else dropped++;
     });
     if (Object.keys(outStore).length) out.classes[className] = outStore;
   });
-  return out;
+  return { ranks: out, dropped };
 }
 
 function serializePurchaseOrder(purchaseOrder) {
@@ -286,14 +295,18 @@ function serializePurchaseOrder(purchaseOrder) {
   }).filter(Boolean);
 }
 
+// Returns { purchaseOrder, dropped } — same rationale as deserializeRanks.
 function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
-  return (Array.isArray(saved) ? saved : []).map((e) => {
-    if (!e || typeof e !== "object" || typeof e.scope !== "string") return null;
+  let dropped = 0;
+  const purchaseOrder = (Array.isArray(saved) ? saved : []).map((e) => {
+    if (!e || typeof e !== "object" || typeof e.scope !== "string") { dropped++; return null; }
     const id = entryIdOf(e);
-    if (id == null) return null;
+    if (id == null) { dropped++; return null; }
     const idx = resolveIdx(e.scope, e.className || null, id);
-    return idx >= 0 ? { scope: e.scope, className: e.className || null, idx } : null;
+    if (idx < 0) { dropped++; return null; }
+    return { scope: e.scope, className: e.className || null, idx };
   }).filter(Boolean);
+  return { purchaseOrder, dropped };
 }
 
 function saveLocal() {
@@ -320,8 +333,12 @@ function loadLocal() {
   } catch (e) { return null; }
 }
 
+// Returns { droppedRanks, droppedPurchases } — how many saved entries had a
+// key that no longer resolves to a current AA. Callers use this to tell the
+// user something vanished, instead of a build that's just quietly smaller
+// than they left it.
 function applyLoaded(loaded) {
-  if (!loaded) return;
+  if (!loaded) return { droppedRanks: 0, droppedPurchases: 0 };
   if (
     Array.isArray(loaded.selectedClasses) &&
     loaded.selectedClasses.length === 3 &&
@@ -343,16 +360,23 @@ function applyLoaded(loaded) {
   // to the wrong ability. Either way, an AA that no longer resolves is
   // dropped rather than guessed at.
   const isLegacy = !(typeof loaded.v === "number" && loaded.v >= 4);
+  let droppedRanks = 0;
+  let droppedPurchases = 0;
   if (loaded.ranks && typeof loaded.ranks === "object") {
-    state.ranks = isLegacy
+    const result = isLegacy
       ? deserializeRanks(loaded.ranks, (scope, cls, idxStr) => currentIdxForLegacyIdx(scope, cls, parseInt(idxStr, 10)))
       : deserializeRanks(loaded.ranks, (scope, cls, key) => idxForKey(scope, cls, key));
+    state.ranks = result.ranks;
+    droppedRanks = result.dropped;
   }
   if (Array.isArray(loaded.purchaseOrder)) {
-    state.purchaseOrder = isLegacy
+    const result = isLegacy
       ? deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.idx === "number" ? e.idx : null), (scope, cls, legacyIdx) => currentIdxForLegacyIdx(scope, cls, legacyIdx))
       : deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.key === "string" ? e.key : null), (scope, cls, key) => idxForKey(scope, cls, key));
+    state.purchaseOrder = result.purchaseOrder;
+    droppedPurchases = result.dropped;
   }
+  return { droppedRanks, droppedPurchases };
 }
 
 // Business logic: everything that reads or derives from `state` and AA_DATA,
@@ -1426,13 +1450,24 @@ function buildShareUrl() {
   return url.toString();
 }
 
+// "N picks from that save no longer exist in the current data and were
+// skipped", or "" if nothing was dropped. Shared wording for every place
+// applyLoaded's result gets surfaced to the user.
+function droppedPicksSuffix(result) {
+  const n = result.droppedRanks;
+  if (!n) return "";
+  return ` (${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped)`;
+}
+
 // Called once on startup. If the URL has a ?build= param, offers to load it — with
 // a confirmation if it would clobber an existing non-empty build — then strips the
-// param from the address bar either way so a refresh doesn't re-prompt.
+// param from the address bar either way so a refresh doesn't re-prompt. Returns
+// true if a shared build was actually applied (so callers know local storage's
+// load got superseded), false otherwise.
 function applySharedBuildFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("build");
-  if (!raw) return;
+  if (!raw) return false;
 
   let json = null;
   try {
@@ -1441,15 +1476,17 @@ function applySharedBuildFromUrl() {
     json = null;
   }
 
+  let applied = false;
   if (json) {
     const hasExisting = spentPoints() > 0;
     const proceed = !hasExisting || confirm("Load the shared build from this link? This will replace your current build. Export your current build first if you want to keep it.");
     if (proceed) {
-      applyLoaded(json);
+      const result = applyLoaded(json);
       state.selectedNode = null;
       clearLastMutation();
       saveLocal();
-      showToast("Loaded shared build from link");
+      showToast(`Loaded shared build from link${droppedPicksSuffix(result)}`);
+      applied = true;
     }
   } else {
     showToast("That share link's build data looks invalid");
@@ -1458,6 +1495,7 @@ function applySharedBuildFromUrl() {
   const cleanUrl = new URL(window.location.href);
   cleanUrl.searchParams.delete("build");
   window.history.replaceState({}, "", cleanUrl.toString());
+  return applied;
 }
 
 function buildExportText() {
@@ -1571,12 +1609,12 @@ function importBuildFromText(text) {
     // pads to length%4, which export-text codes already satisfy), so it's
     // safe to always apply regardless of which format `code` came from.
     const json = decodeBuildCode(fromBase64Url(code));
-    applyLoaded(json);
+    const result = applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();
     saveLocal();
     renderAll();
-    showToast("Build imported");
+    showToast(`Build imported${droppedPicksSuffix(result)}`);
     return true;
   } catch (e) {
     showToast("Failed to read build text");
@@ -1741,13 +1779,23 @@ function wireEvents() {
 function init() {
   cacheDom();
   populateStaticControls();
-  applyLoaded(loadLocal());
-  applySharedBuildFromUrl();
+  const localResult = applyLoaded(loadLocal());
+  // If a share link applies, it replaces whatever localStorage just loaded
+  // (and shows its own toast, including its own drop count) - so the local
+  // load's result no longer describes the build actually in front of the user.
+  const sharedApplied = applySharedBuildFromUrl();
   wireEvents();
   try {
     if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");
   } catch (e) {
     el.disclaimerBanner.classList.remove("hidden");
+  }
+  // One consolidated notice rather than stacking toasts — several firing on
+  // first paint reads as breakage even when each one is just informational.
+  const notices = [];
+  if (!sharedApplied && localResult.droppedRanks) {
+    const n = localResult.droppedRanks;
+    notices.push(`${n} saved pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
   }
   // Data can drift out from under a saved build (a resync renaming/reshaping a
   // prereq target, say) — catch it once on load rather than leaving the user
@@ -1755,7 +1803,10 @@ function init() {
   const invalidated = findInvalidatedPicks();
   if (invalidated.length) {
     const n = invalidated.length;
-    showToast(`${n} pick${n === 1 ? "" : "s"} in your build no longer meet${n === 1 ? "s" : ""} its prerequisite — check the highlighted AAs`);
+    notices.push(`${n} pick${n === 1 ? "" : "s"} no longer meet${n === 1 ? "s" : ""} its prerequisite`);
+  }
+  if (notices.length) {
+    showToast(`${notices.join("; ")} — check the highlighted AAs`);
   }
   renderAll();
 }

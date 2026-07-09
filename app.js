@@ -160,12 +160,14 @@ return Math.max(0, Math.min(aa.ranks, n));
 }
 function deserializeRanks(saved, resolveIdx) {
 const out = { general: {}, archetype: {}, special: {}, classes: {} };
-if (!saved || typeof saved !== "object") return out;
+let dropped = 0;
+if (!saved || typeof saved !== "object") return { ranks: out, dropped };
 ["general", "archetype", "special"].forEach((scope) => {
 const store = saved[scope] || {};
 Object.keys(store).forEach((k) => {
 const idx = resolveIdx(scope, null, k);
 if (idx >= 0) out[scope][idx] = clampRankValue(scope, null, idx, store[k]);
+else dropped++;
 });
 });
 const classes = saved.classes || {};
@@ -175,10 +177,11 @@ const outStore = {};
 Object.keys(store).forEach((k) => {
 const idx = resolveIdx("class", className, k);
 if (idx >= 0) outStore[idx] = clampRankValue("class", className, idx, store[k]);
+else dropped++;
 });
 if (Object.keys(outStore).length) out.classes[className] = outStore;
 });
-return out;
+return { ranks: out, dropped };
 }
 function serializePurchaseOrder(purchaseOrder) {
 return (purchaseOrder || []).map((e) => {
@@ -187,13 +190,16 @@ return key ? { scope: e.scope, className: e.className || null, key } : null;
 }).filter(Boolean);
 }
 function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
-return (Array.isArray(saved) ? saved : []).map((e) => {
-if (!e || typeof e !== "object" || typeof e.scope !== "string") return null;
+let dropped = 0;
+const purchaseOrder = (Array.isArray(saved) ? saved : []).map((e) => {
+if (!e || typeof e !== "object" || typeof e.scope !== "string") { dropped++; return null; }
 const id = entryIdOf(e);
-if (id == null) return null;
+if (id == null) { dropped++; return null; }
 const idx = resolveIdx(e.scope, e.className || null, id);
-return idx >= 0 ? { scope: e.scope, className: e.className || null, idx } : null;
+if (idx < 0) { dropped++; return null; }
+return { scope: e.scope, className: e.className || null, idx };
 }).filter(Boolean);
+return { purchaseOrder, dropped };
 }
 function saveLocal() {
 try {
@@ -218,7 +224,7 @@ return parsed;
 } catch (e) { return null; }
 }
 function applyLoaded(loaded) {
-if (!loaded) return;
+if (!loaded) return { droppedRanks: 0, droppedPurchases: 0 };
 if (
 Array.isArray(loaded.selectedClasses) &&
 loaded.selectedClasses.length === 3 &&
@@ -234,16 +240,23 @@ if (typeof loaded.totalPoints === "number" && !isNaN(loaded.totalPoints)) {
 state.totalPoints = Math.max(0, Math.min(MAX_TOTAL_POINTS, loaded.totalPoints));
 }
 const isLegacy = !(typeof loaded.v === "number" && loaded.v >= 4);
+let droppedRanks = 0;
+let droppedPurchases = 0;
 if (loaded.ranks && typeof loaded.ranks === "object") {
-state.ranks = isLegacy
+const result = isLegacy
 ? deserializeRanks(loaded.ranks, (scope, cls, idxStr) => currentIdxForLegacyIdx(scope, cls, parseInt(idxStr, 10)))
 : deserializeRanks(loaded.ranks, (scope, cls, key) => idxForKey(scope, cls, key));
+state.ranks = result.ranks;
+droppedRanks = result.dropped;
 }
 if (Array.isArray(loaded.purchaseOrder)) {
-state.purchaseOrder = isLegacy
+const result = isLegacy
 ? deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.idx === "number" ? e.idx : null), (scope, cls, legacyIdx) => currentIdxForLegacyIdx(scope, cls, legacyIdx))
 : deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.key === "string" ? e.key : null), (scope, cls, key) => idxForKey(scope, cls, key));
+state.purchaseOrder = result.purchaseOrder;
+droppedPurchases = result.dropped;
 }
+return { droppedRanks, droppedPurchases };
 }
 function costNum(c) {
 const n = parseInt(c, 10);
@@ -1102,25 +1115,32 @@ url.hash = "";
 url.searchParams.set("build", toBase64Url(encodeBuildCode()));
 return url.toString();
 }
+function droppedPicksSuffix(result) {
+const n = result.droppedRanks;
+if (!n) return "";
+return ` (${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped)`;
+}
 function applySharedBuildFromUrl() {
 const params = new URLSearchParams(window.location.search);
 const raw = params.get("build");
-if (!raw) return;
+if (!raw) return false;
 let json = null;
 try {
 json = decodeBuildCode(fromBase64Url(raw));
 } catch (e) {
 json = null;
 }
+let applied = false;
 if (json) {
 const hasExisting = spentPoints() > 0;
 const proceed = !hasExisting || confirm("Load the shared build from this link? This will replace your current build. Export your current build first if you want to keep it.");
 if (proceed) {
-applyLoaded(json);
+const result = applyLoaded(json);
 state.selectedNode = null;
 clearLastMutation();
 saveLocal();
-showToast("Loaded shared build from link");
+showToast(`Loaded shared build from link${droppedPicksSuffix(result)}`);
+applied = true;
 }
 } else {
 showToast("That share link's build data looks invalid");
@@ -1128,6 +1148,7 @@ showToast("That share link's build data looks invalid");
 const cleanUrl = new URL(window.location.href);
 cleanUrl.searchParams.delete("build");
 window.history.replaceState({}, "", cleanUrl.toString());
+return applied;
 }
 function buildExportText() {
 const spent = spentPoints();
@@ -1219,12 +1240,12 @@ const code = extractBuildCode(text);
 if (!code) { showToast("No build code found in that text"); return false; }
 try {
 const json = decodeBuildCode(fromBase64Url(code));
-applyLoaded(json);
+const result = applyLoaded(json);
 state.selectedNode = null;
 clearLastMutation();
 saveLocal();
 renderAll();
-showToast("Build imported");
+showToast(`Build imported${droppedPicksSuffix(result)}`);
 return true;
 } catch (e) {
 showToast("Failed to read build text");
@@ -1362,18 +1383,26 @@ if (state.activeView === "calculator") renderTree(state.activeTab);
 function init() {
 cacheDom();
 populateStaticControls();
-applyLoaded(loadLocal());
-applySharedBuildFromUrl();
+const localResult = applyLoaded(loadLocal());
+const sharedApplied = applySharedBuildFromUrl();
 wireEvents();
 try {
 if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");
 } catch (e) {
 el.disclaimerBanner.classList.remove("hidden");
 }
+const notices = [];
+if (!sharedApplied && localResult.droppedRanks) {
+const n = localResult.droppedRanks;
+notices.push(`${n} saved pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
+}
 const invalidated = findInvalidatedPicks();
 if (invalidated.length) {
 const n = invalidated.length;
-showToast(`${n} pick${n === 1 ? "" : "s"} in your build no longer meet${n === 1 ? "s" : ""} its prerequisite — check the highlighted AAs`);
+notices.push(`${n} pick${n === 1 ? "" : "s"} no longer meet${n === 1 ? "s" : ""} its prerequisite`);
+}
+if (notices.length) {
+showToast(`${notices.join("; ")} — check the highlighted AAs`);
 }
 renderAll();
 }

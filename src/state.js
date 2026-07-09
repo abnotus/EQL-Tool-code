@@ -76,14 +76,22 @@ function clampRankValue(scope, className, idx, rawValue) {
   return Math.max(0, Math.min(aa.ranks, n));
 }
 
+// Returns { ranks, dropped } — `dropped` is how many saved rank entries had a
+// key that no longer resolves to any current AA (renamed/removed since the
+// save was made). Every key here represents at least one spent point
+// (changeRank deletes a store entry the moment it hits 0), so a drop always
+// means real invested points just vanished from the build — worth telling
+// the user about instead of leaving them to notice a lower total on their own.
 function deserializeRanks(saved, resolveIdx) {
   const out = { general: {}, archetype: {}, special: {}, classes: {} };
-  if (!saved || typeof saved !== "object") return out;
+  let dropped = 0;
+  if (!saved || typeof saved !== "object") return { ranks: out, dropped };
   ["general", "archetype", "special"].forEach((scope) => {
     const store = saved[scope] || {};
     Object.keys(store).forEach((k) => {
       const idx = resolveIdx(scope, null, k);
       if (idx >= 0) out[scope][idx] = clampRankValue(scope, null, idx, store[k]);
+      else dropped++;
     });
   });
   const classes = saved.classes || {};
@@ -93,10 +101,11 @@ function deserializeRanks(saved, resolveIdx) {
     Object.keys(store).forEach((k) => {
       const idx = resolveIdx("class", className, k);
       if (idx >= 0) outStore[idx] = clampRankValue("class", className, idx, store[k]);
+      else dropped++;
     });
     if (Object.keys(outStore).length) out.classes[className] = outStore;
   });
-  return out;
+  return { ranks: out, dropped };
 }
 
 export function serializePurchaseOrder(purchaseOrder) {
@@ -106,14 +115,18 @@ export function serializePurchaseOrder(purchaseOrder) {
   }).filter(Boolean);
 }
 
+// Returns { purchaseOrder, dropped } — same rationale as deserializeRanks.
 function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
-  return (Array.isArray(saved) ? saved : []).map((e) => {
-    if (!e || typeof e !== "object" || typeof e.scope !== "string") return null;
+  let dropped = 0;
+  const purchaseOrder = (Array.isArray(saved) ? saved : []).map((e) => {
+    if (!e || typeof e !== "object" || typeof e.scope !== "string") { dropped++; return null; }
     const id = entryIdOf(e);
-    if (id == null) return null;
+    if (id == null) { dropped++; return null; }
     const idx = resolveIdx(e.scope, e.className || null, id);
-    return idx >= 0 ? { scope: e.scope, className: e.className || null, idx } : null;
+    if (idx < 0) { dropped++; return null; }
+    return { scope: e.scope, className: e.className || null, idx };
   }).filter(Boolean);
+  return { purchaseOrder, dropped };
 }
 
 export function saveLocal() {
@@ -140,8 +153,12 @@ export function loadLocal() {
   } catch (e) { return null; }
 }
 
+// Returns { droppedRanks, droppedPurchases } — how many saved entries had a
+// key that no longer resolves to a current AA. Callers use this to tell the
+// user something vanished, instead of a build that's just quietly smaller
+// than they left it.
 export function applyLoaded(loaded) {
-  if (!loaded) return;
+  if (!loaded) return { droppedRanks: 0, droppedPurchases: 0 };
   if (
     Array.isArray(loaded.selectedClasses) &&
     loaded.selectedClasses.length === 3 &&
@@ -163,14 +180,21 @@ export function applyLoaded(loaded) {
   // to the wrong ability. Either way, an AA that no longer resolves is
   // dropped rather than guessed at.
   const isLegacy = !(typeof loaded.v === "number" && loaded.v >= 4);
+  let droppedRanks = 0;
+  let droppedPurchases = 0;
   if (loaded.ranks && typeof loaded.ranks === "object") {
-    state.ranks = isLegacy
+    const result = isLegacy
       ? deserializeRanks(loaded.ranks, (scope, cls, idxStr) => currentIdxForLegacyIdx(scope, cls, parseInt(idxStr, 10)))
       : deserializeRanks(loaded.ranks, (scope, cls, key) => idxForKey(scope, cls, key));
+    state.ranks = result.ranks;
+    droppedRanks = result.dropped;
   }
   if (Array.isArray(loaded.purchaseOrder)) {
-    state.purchaseOrder = isLegacy
+    const result = isLegacy
       ? deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.idx === "number" ? e.idx : null), (scope, cls, legacyIdx) => currentIdxForLegacyIdx(scope, cls, legacyIdx))
       : deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.key === "string" ? e.key : null), (scope, cls, key) => idxForKey(scope, cls, key));
+    state.purchaseOrder = result.purchaseOrder;
+    droppedPurchases = result.dropped;
   }
+  return { droppedRanks, droppedPurchases };
 }
