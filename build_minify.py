@@ -125,6 +125,60 @@ def minify(src: str) -> str:
     return "\n".join(out_lines) + "\n"
 
 
+DATA_CATEGORY_START = re.compile(r'^(general|archetype|special):\s*\[')
+DATA_CLASS_START = re.compile(r'^"([^"]+)":\s*\[')
+DATA_ENTRY_NAME = re.compile(r'name:\s*"((?:[^"\\]|\\.)*)"')
+DATA_ENTRY_AUTO = re.compile(r'\bauto:\s*true')
+
+
+def check_prereq_disambiguation_invariant(data_src: str):
+    """
+    resolvePrereqTarget (src/logic.js) resolves a prereq by name within a
+    category, and when a name repeats (e.g. Cleric's two "Divine Aura" rows)
+    it deterministically prefers whichever occurrence is NOT auto-granted -
+    on the reasoning that a prereq gating something you get for free anyway
+    isn't a meaningful gate. That tie-break only gives a well-defined answer
+    if every repeated name has EXACTLY ONE non-auto occurrence. Checked here,
+    at the point data.src.js actually changes, so a future edit that breaks
+    the assumption fails the build loudly instead of letting a prereq
+    silently resolve to whichever occurrence happens to come first.
+    """
+    current_cat = None
+    buckets = {}
+    for line in data_src.split("\n"):
+        s = line.strip()
+        m = DATA_CATEGORY_START.match(s)
+        if m:
+            current_cat = m.group(1)
+            continue
+        m = DATA_CLASS_START.match(s)
+        if m:
+            current_cat = "class:" + m.group(1)
+            continue
+        if s.startswith("classes:") or not s.startswith("{ name:"):
+            continue
+        nm = DATA_ENTRY_NAME.search(s)
+        if not nm or not current_cat:
+            continue
+        buckets.setdefault(current_cat, []).append((nm.group(1), bool(DATA_ENTRY_AUTO.search(s))))
+
+    problems = []
+    for cat, entries in buckets.items():
+        by_name = {}
+        for name, auto in entries:
+            by_name.setdefault(name, []).append(auto)
+        for name, autos in by_name.items():
+            if len(autos) <= 1:
+                continue
+            non_auto_count = sum(1 for a in autos if not a)
+            if non_auto_count != 1:
+                problems.append(
+                    f'  [{cat}] "{name}" appears {len(autos)} times with auto flags {autos} - '
+                    f"need exactly one non-auto occurrence for prereq resolution to stay deterministic, got {non_auto_count}."
+                )
+    return problems
+
+
 VERSIONED_ASSET = re.compile(r'(href|src)="(app\.js|data\.js|styles\.css)(?:\?v=[a-f0-9]+)?"')
 
 
@@ -144,6 +198,16 @@ def stamp_index_html(outputs):
 
 
 def main():
+    with open("data.src.js", "r", encoding="utf-8") as f:
+        data_src_check = f.read()
+    problems = check_prereq_disambiguation_invariant(data_src_check)
+    if problems:
+        print("ERROR: data.src.js violates the duplicate-AA-name disambiguation invariant:")
+        for p in problems:
+            print(p)
+        print("A prereq referencing one of these names would resolve unpredictably. Fix the data (add/remove an `auto` flag so exactly one occurrence is non-auto) before building.")
+        return 1
+
     assemble_app_src()
     pairs = [("app.src.js", "app.js"), ("data.src.js", "data.js")]
     outputs = {}

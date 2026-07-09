@@ -17,6 +17,18 @@ Refuses to overwrite the snapshot if parsing found 0 rows, or >20% fewer rows
 than last time - both usually mean the table parser broke on a wiki markup
 change, not that abilities actually vanished. Pass --accept to save anyway
 if a drop that size is genuinely expected.
+
+IMPORTANT: this only tracks ranks/costs/description as they appear in the
+wiki's table cells. It does NOT track prerequisites or level requirements as
+their own fields - data.src.js's `prereq`/`levelReq` are hand-derived by a
+human reading the wiki's free-text description prose (e.g. "Requirements:
+level 50, Divine Aura at level 1."), not extracted from a dedicated column.
+So the only signal this script has for a prereq/level change is a diff in
+the `description` text. If a future version of this tool ever filters
+description-only diffs out as noise (e.g. to cut down on wording-only
+false positives), it needs to keep flagging ones that touch a
+"Requirements:" clause specifically - otherwise it goes blind to the exact
+kind of drift heldRankInvalidReason (in src/logic.js) exists to catch.
 """
 import json
 import re

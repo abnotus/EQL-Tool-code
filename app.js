@@ -429,15 +429,26 @@ return parsed.ranks[i];
 }
 return null;
 }
+function tryResolvePrereq(text, sourceCategory) {
+const parsed = parsePrereqText(text);
+if (!parsed) return { ok: false, malformed: true };
+const resolved = resolvePrereqTarget(text, sourceCategory);
+if (!resolved) return { ok: false, malformed: false, name: parsed.name };
+return { ok: true, resolved };
+}
+function unresolvedPrereqMessage(text, attempt) {
+return attempt.malformed
+? `Prerequisite text "${text}" isn't in a recognized format — this needs fixing in the data, not the wiki.`
+: `Requires "${attempt.name}", which no longer resolves to an existing ability.`;
+}
 function structuralLockReason(catKey, idx) {
 const aa = getList(catKey)[idx];
 const levelReq = parseInt(aa.levelReq, 10) || 1;
 if (state.charLevel < levelReq) return `Requires character level ${levelReq}.`;
 if (aa.prereq) {
-const resolved = resolvePrereqTarget(aa.prereq, catKey);
-if (!resolved) {
-return `Requires "${aa.prereq}", which no longer resolves to an existing ability.`;
-}
+const attempt = tryResolvePrereq(aa.prereq, catKey);
+if (!attempt.ok) return unresolvedPrereqMessage(aa.prereq, attempt);
+const resolved = attempt.resolved;
 const sourceRank = effectiveRank(catKey, idx) + 1;
 const requiredRank = resolved.forRank(sourceRank);
 const targetRank = effectiveRank(resolved.category, resolved.idx);
@@ -453,10 +464,9 @@ const aa = getList(catKey)[idx];
 if (!aa || !aa.prereq || aa.auto) return null;
 const purchased = getRanksStore(catKey)[idx] || 0;
 if (purchased <= 0) return null;
-const resolved = resolvePrereqTarget(aa.prereq, catKey);
-if (!resolved) {
-return `Requires "${aa.prereq}", which no longer resolves to an existing ability.`;
-}
+const attempt = tryResolvePrereq(aa.prereq, catKey);
+if (!attempt.ok) return unresolvedPrereqMessage(aa.prereq, attempt);
+const resolved = attempt.resolved;
 const targetRank = effectiveRank(resolved.category, resolved.idx);
 for (let r = 1; r <= purchased; r++) {
 const required = resolved.forRank(r);
@@ -600,11 +610,13 @@ const autoOffset = aa && aa.autoRanks ? Math.min(aa.autoRanks, aa.ranks) : 0;
 const stepRank = purchaseCount + autoOffset;
 let prereqWarn = false;
 if (active && aa && aa.prereq) {
-const resolved = resolvePrereqTarget(aa.prereq, category);
-if (resolved) {
-const t = categoryToScopeClassName(resolved.category);
-const targetKey = entryKey(t.scope, t.className, resolved.idx);
-if ((counts[targetKey] || 0) < resolved.forRank(stepRank)) prereqWarn = true;
+const attempt = tryResolvePrereq(aa.prereq, category);
+if (!attempt.ok) {
+prereqWarn = true;
+} else {
+const t = categoryToScopeClassName(attempt.resolved.category);
+const targetKey = entryKey(t.scope, t.className, attempt.resolved.idx);
+if ((counts[targetKey] || 0) < attempt.resolved.forRank(stepRank)) prereqWarn = true;
 }
 }
 counts[key] = purchaseCount;

@@ -264,19 +264,37 @@ export function resolvePrereqTarget(text, sourceCategory) {
   return null;
 }
 
+// Resolves a prereq, distinguishing *why* it failed: text that doesn't match
+// the expected "Requires X rank/level N" shape at all (a bug in our own
+// data.src.js entry, since we write every prereq string ourselves) from text
+// that parses fine but names a target that no longer exists under this
+// category (the target was renamed/removed, e.g. by a resync). Both must
+// block — an unverifiable prereq isn't the same as no prereq — but callers
+// want different wording, since one is "fix the data" and the other is
+// "the wiki/data changed."
+function tryResolvePrereq(text, sourceCategory) {
+  const parsed = parsePrereqText(text);
+  if (!parsed) return { ok: false, malformed: true };
+  const resolved = resolvePrereqTarget(text, sourceCategory);
+  if (!resolved) return { ok: false, malformed: false, name: parsed.name };
+  return { ok: true, resolved };
+}
+
+function unresolvedPrereqMessage(text, attempt) {
+  return attempt.malformed
+    ? `Prerequisite text "${text}" isn't in a recognized format — this needs fixing in the data, not the wiki.`
+    : `Requires "${attempt.name}", which no longer resolves to an existing ability.`;
+}
+
 // Structural reasons (level / prerequisite) that permanently block a rank regardless of points.
 export function structuralLockReason(catKey, idx) {
   const aa = getList(catKey)[idx];
   const levelReq = parseInt(aa.levelReq, 10) || 1;
   if (state.charLevel < levelReq) return `Requires character level ${levelReq}.`;
   if (aa.prereq) {
-    const resolved = resolvePrereqTarget(aa.prereq, catKey);
-    if (!resolved) {
-      // An unresolvable prereq (renamed/removed target, or text that no
-      // longer parses) must block, not fall through as "no constraint" — a
-      // prereq we can't verify is satisfied is not the same as no prereq.
-      return `Requires "${aa.prereq}", which no longer resolves to an existing ability.`;
-    }
+    const attempt = tryResolvePrereq(aa.prereq, catKey);
+    if (!attempt.ok) return unresolvedPrereqMessage(aa.prereq, attempt);
+    const resolved = attempt.resolved;
     const sourceRank = effectiveRank(catKey, idx) + 1; // the rank about to be purchased
     const requiredRank = resolved.forRank(sourceRank);
     const targetRank = effectiveRank(resolved.category, resolved.idx);
@@ -307,10 +325,9 @@ export function heldRankInvalidReason(catKey, idx) {
   if (!aa || !aa.prereq || aa.auto) return null;
   const purchased = getRanksStore(catKey)[idx] || 0;
   if (purchased <= 0) return null;
-  const resolved = resolvePrereqTarget(aa.prereq, catKey);
-  if (!resolved) {
-    return `Requires "${aa.prereq}", which no longer resolves to an existing ability.`;
-  }
+  const attempt = tryResolvePrereq(aa.prereq, catKey);
+  if (!attempt.ok) return unresolvedPrereqMessage(aa.prereq, attempt);
+  const resolved = attempt.resolved;
   const targetRank = effectiveRank(resolved.category, resolved.idx);
   for (let r = 1; r <= purchased; r++) {
     const required = resolved.forRank(r);
@@ -496,11 +513,13 @@ export function computeProgressionSteps() {
 
     let prereqWarn = false;
     if (active && aa && aa.prereq) {
-      const resolved = resolvePrereqTarget(aa.prereq, category);
-      if (resolved) {
-        const t = categoryToScopeClassName(resolved.category);
-        const targetKey = entryKey(t.scope, t.className, resolved.idx);
-        if ((counts[targetKey] || 0) < resolved.forRank(stepRank)) prereqWarn = true;
+      const attempt = tryResolvePrereq(aa.prereq, category);
+      if (!attempt.ok) {
+        prereqWarn = true; // malformed or unresolvable - same "unmet" signal as elsewhere
+      } else {
+        const t = categoryToScopeClassName(attempt.resolved.category);
+        const targetKey = entryKey(t.scope, t.className, attempt.resolved.idx);
+        if ((counts[targetKey] || 0) < attempt.resolved.forRank(stepRank)) prereqWarn = true;
       }
     }
 
