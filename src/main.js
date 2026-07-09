@@ -7,7 +7,7 @@ import { findInvalidatedPicks, reconcilePurchaseOrderCounts } from "./logic.js";
 import { wireEvents } from "./events.js";
 import { applySharedBuildFromUrl } from "./exportImport.js";
 
-function init() {
+async function init() {
   cacheDom();
   populateStaticControls();
   const localResult = applyLoaded(loadLocal());
@@ -17,7 +17,7 @@ function init() {
   // one place that assembles and shows a load-time notice, so several
   // simultaneous issues combine into one toast instead of each overwriting
   // the last.
-  const shared = applySharedBuildFromUrl(localResult);
+  const shared = await applySharedBuildFromUrl(localResult);
   wireEvents();
   try {
     if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");

@@ -1178,11 +1178,44 @@ ranks: serializeRanks(state.ranks),
 purchaseOrder: serializePurchaseOrder(state.purchaseOrder)
 };
 }
-function encodeBuildCode() {
-return btoa(unescape(encodeURIComponent(JSON.stringify(buildCodeObject()))));
+async function gzipCompress(bytes) {
+const cs = new CompressionStream("gzip");
+const writer = cs.writable.getWriter();
+writer.write(bytes);
+writer.close();
+return new Uint8Array(await new Response(cs.readable).arrayBuffer());
 }
-function decodeBuildCode(code) {
-return JSON.parse(decodeURIComponent(escape(atob(code))));
+async function gzipDecompress(bytes) {
+const ds = new DecompressionStream("gzip");
+const writer = ds.writable.getWriter();
+writer.write(bytes);
+writer.close();
+return new Uint8Array(await new Response(ds.readable).arrayBuffer());
+}
+function bytesToBase64(bytes) {
+let binary = "";
+for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+return btoa(binary);
+}
+function base64ToBytes(b64) {
+const binary = atob(b64);
+const bytes = new Uint8Array(binary.length);
+for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+return bytes;
+}
+async function encodeBuildCode() {
+const bytes = new TextEncoder().encode(JSON.stringify(buildCodeObject()));
+return bytesToBase64(await gzipCompress(bytes));
+}
+async function decodeBuildCode(code) {
+const bytes = base64ToBytes(code);
+let jsonBytes;
+try {
+jsonBytes = await gzipDecompress(bytes);
+} catch (e) {
+jsonBytes = bytes;
+}
+return JSON.parse(new TextDecoder().decode(jsonBytes));
 }
 function toBase64Url(b64) {
 return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -1192,11 +1225,11 @@ let b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
 while (b64.length % 4) b64 += "=";
 return b64;
 }
-function buildShareUrl() {
+async function buildShareUrl() {
 const url = new URL(window.location.href);
 url.search = "";
 url.hash = "";
-url.searchParams.set("build", toBase64Url(encodeBuildCode()));
+url.searchParams.set("build", toBase64Url(await encodeBuildCode()));
 return url.toString();
 }
 function loadIssuesSuffix(result, repaired) {
@@ -1210,13 +1243,13 @@ parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was
 }
 return parts.length ? ` (${parts.join("; ")})` : "";
 }
-function applySharedBuildFromUrl(localLoadResult) {
+async function applySharedBuildFromUrl(localLoadResult) {
 const params = new URLSearchParams(window.location.search);
 const raw = params.get("build");
 if (!raw) return { applied: false, notice: null };
 let json = null;
 try {
-json = decodeBuildCode(fromBase64Url(raw));
+json = await decodeBuildCode(fromBase64Url(raw));
 } catch (e) {
 json = null;
 }
@@ -1242,7 +1275,7 @@ cleanUrl.searchParams.delete("build");
 window.history.replaceState({}, "", cleanUrl.toString());
 return { applied, notice };
 }
-function buildExportText() {
+async function buildExportText() {
 const spent = spentPoints();
 const lines = [];
 lines.push("EverQuest Legends - AA Build");
@@ -1267,13 +1300,16 @@ lines.push(`  ${s.index + 1}. ${s.name} rank ${s.stepRank}${maxRank} — ${s.ste
 });
 lines.push("");
 }
-lines.push(`BUILD_CODE:${encodeBuildCode()}`);
+lines.push(`BUILD_CODE:${await encodeBuildCode()}`);
 return lines.join("\n");
 }
-function openExportModal() {
-el.exportText.value = buildExportText();
-el.shareLinkInput.value = buildShareUrl();
+async function openExportModal() {
+el.exportText.value = "Generating…";
+el.shareLinkInput.value = "";
 el.exportModal.classList.remove("hidden");
+const [text, url] = await Promise.all([buildExportText(), buildShareUrl()]);
+el.exportText.value = text;
+el.shareLinkInput.value = url;
 el.exportText.focus();
 el.exportText.select();
 }
@@ -1327,11 +1363,11 @@ const compact = trimmed.replace(/\s+/g, "");
 if (compact.length > 20 && /^[A-Za-z0-9_-]+={0,2}$/.test(compact)) return compact;
 return null;
 }
-function importBuildFromText(text) {
+async function importBuildFromText(text) {
 const code = extractBuildCode(text);
 if (!code) { showToast("No build code found in that text"); return false; }
 try {
-const json = decodeBuildCode(fromBase64Url(code));
+const json = await decodeBuildCode(fromBase64Url(code));
 const result = applyLoaded(json);
 state.selectedNode = null;
 clearLastMutation();
@@ -1353,10 +1389,10 @@ el.importText.focus();
 function closeImportModal() {
 el.importModal.classList.add("hidden");
 }
-function doImport() {
+async function doImport() {
 const text = el.importText.value.trim();
 if (!text) { showToast("Paste build text first"); return; }
-if (importBuildFromText(text)) closeImportModal();
+if (await importBuildFromText(text)) closeImportModal();
 }
 function wireEvents() {
 el.classSelects.forEach((sel, i) => {
@@ -1473,11 +1509,11 @@ window.addEventListener("resize", () => {
 if (state.activeView === "calculator") renderTree(state.activeTab);
 });
 }
-function init() {
+async function init() {
 cacheDom();
 populateStaticControls();
 const localResult = applyLoaded(loadLocal());
-const shared = applySharedBuildFromUrl(localResult);
+const shared = await applySharedBuildFromUrl(localResult);
 wireEvents();
 try {
 if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");

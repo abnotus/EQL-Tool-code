@@ -16,12 +16,58 @@ function buildCodeObject() {
   };
 }
 
-function encodeBuildCode() {
-  return btoa(unescape(encodeURIComponent(JSON.stringify(buildCodeObject()))));
+// purchaseOrder is highly repetitive (one entry per rank bought, not per AA —
+// a maxed 6-rank AA repeats the same scope/className/key six times), so
+// gzip beats every hand-rolled format short of assigning every AA a stable
+// numeric id, which is a bigger change than this one. CompressionStream is
+// the standard streams-based API for this; no library needed.
+async function gzipCompress(bytes) {
+  const cs = new CompressionStream("gzip");
+  const writer = cs.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  return new Uint8Array(await new Response(cs.readable).arrayBuffer());
 }
 
-function decodeBuildCode(code) {
-  return JSON.parse(decodeURIComponent(escape(atob(code))));
+async function gzipDecompress(bytes) {
+  const ds = new DecompressionStream("gzip");
+  const writer = ds.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  return new Uint8Array(await new Response(ds.readable).arrayBuffer());
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function base64ToBytes(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function encodeBuildCode() {
+  const bytes = new TextEncoder().encode(JSON.stringify(buildCodeObject()));
+  return bytesToBase64(await gzipCompress(bytes));
+}
+
+async function decodeBuildCode(code) {
+  const bytes = base64ToBytes(code);
+  let jsonBytes;
+  try {
+    jsonBytes = await gzipDecompress(bytes);
+  } catch (e) {
+    // Not a gzip stream - most likely a share code or export text made
+    // before compression was added, which was plain UTF-8 JSON straight
+    // from base64. Fall back to reading it that way so old links and old
+    // exported text both keep working, rather than just failing.
+    jsonBytes = bytes;
+  }
+  return JSON.parse(new TextDecoder().decode(jsonBytes));
 }
 
 // Standard base64 (as used in BUILD_CODE) uses +, /, and = padding, which are legal
@@ -38,11 +84,11 @@ function fromBase64Url(b64url) {
   return b64;
 }
 
-export function buildShareUrl() {
+export async function buildShareUrl() {
   const url = new URL(window.location.href);
   url.search = "";
   url.hash = "";
-  url.searchParams.set("build", toBase64Url(encodeBuildCode()));
+  url.searchParams.set("build", toBase64Url(await encodeBuildCode()));
   return url.toString();
 }
 
@@ -76,14 +122,14 @@ function loadIssuesSuffix(result, repaired) {
 // it had to a bad resync would otherwise read as empty, skip the confirm,
 // and get silently overwritten here (with an unconditional saveLocal below)
 // on the exact load where preserving the original save mattered most.
-export function applySharedBuildFromUrl(localLoadResult) {
+export async function applySharedBuildFromUrl(localLoadResult) {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("build");
   if (!raw) return { applied: false, notice: null };
 
   let json = null;
   try {
-    json = decodeBuildCode(fromBase64Url(raw));
+    json = await decodeBuildCode(fromBase64Url(raw));
   } catch (e) {
     json = null;
   }
@@ -112,7 +158,7 @@ export function applySharedBuildFromUrl(localLoadResult) {
   return { applied, notice };
 }
 
-export function buildExportText() {
+export async function buildExportText() {
   const spent = spentPoints();
   const lines = [];
   lines.push("EverQuest Legends - AA Build");
@@ -140,14 +186,17 @@ export function buildExportText() {
     lines.push("");
   }
 
-  lines.push(`BUILD_CODE:${encodeBuildCode()}`);
+  lines.push(`BUILD_CODE:${await encodeBuildCode()}`);
   return lines.join("\n");
 }
 
-export function openExportModal() {
-  el.exportText.value = buildExportText();
-  el.shareLinkInput.value = buildShareUrl();
+export async function openExportModal() {
+  el.exportText.value = "Generating…";
+  el.shareLinkInput.value = "";
   el.exportModal.classList.remove("hidden");
+  const [text, url] = await Promise.all([buildExportText(), buildShareUrl()]);
+  el.exportText.value = text;
+  el.shareLinkInput.value = url;
   el.exportText.focus();
   el.exportText.select();
 }
@@ -215,14 +264,14 @@ export function extractBuildCode(text) {
   return null;
 }
 
-export function importBuildFromText(text) {
+export async function importBuildFromText(text) {
   const code = extractBuildCode(text);
   if (!code) { showToast("No build code found in that text"); return false; }
   try {
     // fromBase64Url is a no-op on plain base64 (only touches -/_ chars and
     // pads to length%4, which export-text codes already satisfy), so it's
     // safe to always apply regardless of which format `code` came from.
-    const json = decodeBuildCode(fromBase64Url(code));
+    const json = await decodeBuildCode(fromBase64Url(code));
     const result = applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();
@@ -247,8 +296,8 @@ export function closeImportModal() {
   el.importModal.classList.add("hidden");
 }
 
-export function doImport() {
+export async function doImport() {
   const text = el.importText.value.trim();
   if (!text) { showToast("Paste build text first"); return; }
-  if (importBuildFromText(text)) closeImportModal();
+  if (await importBuildFromText(text)) closeImportModal();
 }

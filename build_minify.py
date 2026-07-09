@@ -42,7 +42,7 @@ SRC_MODULE_ORDER = [
 ]
 
 IMPORT_BLOCK = re.compile(r'^import\s*\{.*?\}\s*from\s*["\'][^"\']+["\'];?\s*$\n?', re.MULTILINE | re.DOTALL)
-EXPORT_PREFIX = re.compile(r"^(\s*)export\s+(function|const|let)\s")
+EXPORT_PREFIX = re.compile(r"^(\s*)export\s+(async\s+function|function|const|let)\s")
 
 
 def strip_module_syntax(src: str) -> str:
