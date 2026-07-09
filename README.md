@@ -13,7 +13,7 @@ A talent-calculator-style planner for [EverQuest Legends](https://eqlwiki.com/Al
 - **Browse All AAs** — a searchable reference independent of your current build
 - **Build Summary** — everything you've picked, grouped by category, with running totals shown for flat "N per rank" AAs
 - **Progression** tab — tracks the order you spent points in, reorderable, with per-step/running-total cost, add/remove controls, and single-level undo
-- Export/import a build as text, or via a shareable URL (open the link, the build loads automatically)
+- Export a build as text or a shareable URL (open the link, the build loads automatically); import by pasting text directly, pasting a full exported block, or loading a saved `.txt` file
 - Auto-granted AAs (free, level-gated abilities, including partially-free abilities) are applied automatically
 - Responsive layout, keyboard-accessible AA selection
 
