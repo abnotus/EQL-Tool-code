@@ -191,16 +191,13 @@ return key ? { scope: e.scope, className: e.className || null, key } : null;
 }).filter(Boolean);
 }
 function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
-let dropped = 0;
-const purchaseOrder = (Array.isArray(saved) ? saved : []).map((e) => {
-if (!e || typeof e !== "object" || typeof e.scope !== "string") { dropped++; return null; }
+return (Array.isArray(saved) ? saved : []).map((e) => {
+if (!e || typeof e !== "object" || typeof e.scope !== "string") return null;
 const id = entryIdOf(e);
-if (id == null) { dropped++; return null; }
+if (id == null) return null;
 const idx = resolveIdx(e.scope, e.className || null, id);
-if (idx < 0) { dropped++; return null; }
-return { scope: e.scope, className: e.className || null, idx };
+return idx >= 0 ? { scope: e.scope, className: e.className || null, idx } : null;
 }).filter(Boolean);
-return { purchaseOrder, dropped };
 }
 function saveLocal() {
 try {
@@ -225,7 +222,7 @@ return parsed;
 } catch (e) { return null; }
 }
 function applyLoaded(loaded) {
-if (!loaded) return { droppedRanks: 0, droppedPurchases: 0 };
+if (!loaded) return { droppedRanks: 0 };
 if (
 Array.isArray(loaded.selectedClasses) &&
 loaded.selectedClasses.length === 3 &&
@@ -242,7 +239,6 @@ state.totalPoints = Math.max(0, Math.min(MAX_TOTAL_POINTS, loaded.totalPoints));
 }
 const isLegacy = !(typeof loaded.v === "number" && loaded.v >= 4);
 let droppedRanks = 0;
-let droppedPurchases = 0;
 if (loaded.ranks && typeof loaded.ranks === "object") {
 const result = isLegacy
 ? deserializeRanks(loaded.ranks, (scope, cls, idxStr) => currentIdxForLegacyIdx(scope, cls, parseInt(idxStr, 10)))
@@ -251,13 +247,11 @@ state.ranks = result.ranks;
 droppedRanks = result.dropped;
 }
 if (Array.isArray(loaded.purchaseOrder)) {
-const result = isLegacy
+state.purchaseOrder = isLegacy
 ? deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.idx === "number" ? e.idx : null), (scope, cls, legacyIdx) => currentIdxForLegacyIdx(scope, cls, legacyIdx))
 : deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.key === "string" ? e.key : null), (scope, cls, key) => idxForKey(scope, cls, key));
-state.purchaseOrder = result.purchaseOrder;
-droppedPurchases = result.dropped;
 }
-return { droppedRanks, droppedPurchases };
+return { droppedRanks };
 }
 function costNum(c) {
 const n = parseInt(c, 10);
@@ -507,6 +501,58 @@ if (reason) results.push({ category: catKey, idx, name: aa.name, reason });
 });
 });
 return results;
+}
+function reconcilePurchaseOrderCounts() {
+function countFor(scope, className, idx) {
+let n = 0;
+for (const e of state.purchaseOrder) {
+if (e.scope === scope && (e.className || null) === (className || null) && e.idx === idx) n++;
+}
+return n;
+}
+function expectedFor(scope, className, idx, aa, held) {
+const autoOffset = aa.autoRanks ? Math.min(aa.autoRanks, aa.ranks) : 0;
+return Math.max(0, held - autoOffset);
+}
+const targets = [];
+["general", "archetype", "special"].forEach((scope) => {
+const list = AA_DATA[scope] || [];
+Object.keys(state.ranks[scope] || {}).forEach((idxStr) => {
+const idx = parseInt(idxStr, 10);
+const aa = list[idx];
+if (aa && !aa.auto) targets.push({ scope, className: null, idx, aa, held: state.ranks[scope][idxStr] });
+});
+});
+Object.keys(state.ranks.classes || {}).forEach((className) => {
+const list = AA_DATA.classes[className] || [];
+Object.keys(state.ranks.classes[className] || {}).forEach((idxStr) => {
+const idx = parseInt(idxStr, 10);
+const aa = list[idx];
+if (aa && !aa.auto) targets.push({ scope: "class", className, idx, aa, held: state.ranks.classes[className][idxStr] });
+});
+});
+let repaired = 0;
+targets.forEach(({ scope, className, idx, aa, held }) => {
+const expected = expectedFor(scope, className, idx, aa, held);
+const actual = countFor(scope, className, idx);
+if (expected === actual) return;
+repaired++;
+if (actual > expected) {
+let toRemove = actual - expected;
+for (let i = state.purchaseOrder.length - 1; i >= 0 && toRemove > 0; i--) {
+const e = state.purchaseOrder[i];
+if (e.scope === scope && (e.className || null) === (className || null) && e.idx === idx) {
+state.purchaseOrder.splice(i, 1);
+toRemove--;
+}
+}
+} else {
+for (let i = 0; i < expected - actual; i++) {
+state.purchaseOrder.push({ scope, className, idx });
+}
+}
+});
+return repaired;
 }
 function getBlockReason(catKey, idx) {
 const structural = structuralLockReason(catKey, idx);
@@ -1134,15 +1180,21 @@ url.hash = "";
 url.searchParams.set("build", toBase64Url(encodeBuildCode()));
 return url.toString();
 }
-function droppedPicksSuffix(result) {
+function loadIssuesSuffix(result, repaired) {
+const parts = [];
+if (result.droppedRanks) {
 const n = result.droppedRanks;
-if (!n) return "";
-return ` (${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped)`;
+parts.push(`${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
+}
+if (repaired) {
+parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
+}
+return parts.length ? ` (${parts.join("; ")})` : "";
 }
 function applySharedBuildFromUrl() {
 const params = new URLSearchParams(window.location.search);
 const raw = params.get("build");
-if (!raw) return false;
+if (!raw) return { applied: false, notice: null };
 let json = null;
 try {
 json = decodeBuildCode(fromBase64Url(raw));
@@ -1150,6 +1202,7 @@ json = decodeBuildCode(fromBase64Url(raw));
 json = null;
 }
 let applied = false;
+let notice = null;
 if (json) {
 const hasExisting = spentPoints() > 0;
 const proceed = !hasExisting || confirm("Load the shared build from this link? This will replace your current build. Export your current build first if you want to keep it.");
@@ -1157,17 +1210,18 @@ if (proceed) {
 const result = applyLoaded(json);
 state.selectedNode = null;
 clearLastMutation();
+const repaired = reconcilePurchaseOrderCounts();
 saveLocal();
-showToast(`Loaded shared build from link${droppedPicksSuffix(result)}`);
+notice = `Loaded shared build from link${loadIssuesSuffix(result, repaired)}`;
 applied = true;
 }
 } else {
-showToast("That share link's build data looks invalid");
+notice = "That share link's build data looks invalid";
 }
 const cleanUrl = new URL(window.location.href);
 cleanUrl.searchParams.delete("build");
 window.history.replaceState({}, "", cleanUrl.toString());
-return applied;
+return { applied, notice };
 }
 function buildExportText() {
 const spent = spentPoints();
@@ -1262,9 +1316,10 @@ const json = decodeBuildCode(fromBase64Url(code));
 const result = applyLoaded(json);
 state.selectedNode = null;
 clearLastMutation();
+const repaired = reconcilePurchaseOrderCounts();
 saveLocal();
 renderAll();
-showToast(`Build imported${droppedPicksSuffix(result)}`);
+showToast(`Build imported${loadIssuesSuffix(result, repaired)}`);
 return true;
 } catch (e) {
 showToast("Failed to read build text");
@@ -1403,7 +1458,7 @@ function init() {
 cacheDom();
 populateStaticControls();
 const localResult = applyLoaded(loadLocal());
-const sharedApplied = applySharedBuildFromUrl();
+const shared = applySharedBuildFromUrl();
 wireEvents();
 try {
 if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");
@@ -1411,17 +1466,22 @@ if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classLi
 el.disclaimerBanner.classList.remove("hidden");
 }
 const notices = [];
-if (!sharedApplied && localResult.droppedRanks) {
+if (shared.notice) notices.push(shared.notice);
+if (!shared.applied && localResult.droppedRanks) {
 const n = localResult.droppedRanks;
 notices.push(`${n} saved pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
+}
+const repaired = reconcilePurchaseOrderCounts();
+if (repaired) {
+notices.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
 }
 const invalidated = findInvalidatedPicks();
 if (invalidated.length) {
 const n = invalidated.length;
-notices.push(`${n} pick${n === 1 ? "" : "s"} no longer meet${n === 1 ? "s" : ""} its prerequisite`);
+notices.push(`${n} pick${n === 1 ? "" : "s"} no longer meet${n === 1 ? "s" : ""} its prerequisite — check the highlighted AAs`);
 }
 if (notices.length) {
-showToast(`${notices.join("; ")} — check the highlighted AAs`);
+showToast(notices.join("; "));
 }
 renderAll();
 }

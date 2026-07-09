@@ -2,7 +2,7 @@
 
 import { state, AA_CATEGORY_KEYS, applyLoaded, saveLocal, SAVE_FORMAT_VERSION, serializeRanks, serializePurchaseOrder } from "./state.js";
 import { el } from "./dom.js";
-import { getList, effectiveRank, labelFor, spentPoints, computeProgressionSteps, clearLastMutation } from "./logic.js";
+import { getList, effectiveRank, labelFor, spentPoints, computeProgressionSteps, clearLastMutation, reconcilePurchaseOrderCounts } from "./logic.js";
 import { renderAll, showToast } from "./render.js";
 
 function buildCodeObject() {
@@ -46,24 +46,33 @@ export function buildShareUrl() {
   return url.toString();
 }
 
-// "N picks from that save no longer exist in the current data and were
-// skipped", or "" if nothing was dropped. Shared wording for every place
-// applyLoaded's result gets surfaced to the user.
-function droppedPicksSuffix(result) {
-  const n = result.droppedRanks;
-  if (!n) return "";
-  return ` (${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped)`;
+// Builds a " (...)" suffix summarizing anything applyLoaded dropped and/or
+// reconcilePurchaseOrderCounts repaired — "" if neither applies. Shared
+// wording for the single-action load paths (share link, text import); the
+// startup path in main.js assembles its own multi-item notice instead, since
+// it can also be reporting on invalidated picks at the same time.
+function loadIssuesSuffix(result, repaired) {
+  const parts = [];
+  if (result.droppedRanks) {
+    const n = result.droppedRanks;
+    parts.push(`${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
+  }
+  if (repaired) {
+    parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
 }
 
 // Called once on startup. If the URL has a ?build= param, offers to load it — with
 // a confirmation if it would clobber an existing non-empty build — then strips the
 // param from the address bar either way so a refresh doesn't re-prompt. Returns
-// true if a shared build was actually applied (so callers know local storage's
-// load got superseded), false otherwise.
+// { applied, notice } rather than toasting directly — main.js is the single
+// place that decides what to show, so this outcome can be combined with
+// other load-time notices into one toast instead of one overwriting another.
 export function applySharedBuildFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("build");
-  if (!raw) return false;
+  if (!raw) return { applied: false, notice: null };
 
   let json = null;
   try {
@@ -73,6 +82,7 @@ export function applySharedBuildFromUrl() {
   }
 
   let applied = false;
+  let notice = null;
   if (json) {
     const hasExisting = spentPoints() > 0;
     const proceed = !hasExisting || confirm("Load the shared build from this link? This will replace your current build. Export your current build first if you want to keep it.");
@@ -80,18 +90,19 @@ export function applySharedBuildFromUrl() {
       const result = applyLoaded(json);
       state.selectedNode = null;
       clearLastMutation();
+      const repaired = reconcilePurchaseOrderCounts();
       saveLocal();
-      showToast(`Loaded shared build from link${droppedPicksSuffix(result)}`);
+      notice = `Loaded shared build from link${loadIssuesSuffix(result, repaired)}`;
       applied = true;
     }
   } else {
-    showToast("That share link's build data looks invalid");
+    notice = "That share link's build data looks invalid";
   }
 
   const cleanUrl = new URL(window.location.href);
   cleanUrl.searchParams.delete("build");
   window.history.replaceState({}, "", cleanUrl.toString());
-  return applied;
+  return { applied, notice };
 }
 
 export function buildExportText() {
@@ -208,9 +219,10 @@ export function importBuildFromText(text) {
     const result = applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();
+    const repaired = reconcilePurchaseOrderCounts();
     saveLocal();
     renderAll();
-    showToast(`Build imported${droppedPicksSuffix(result)}`);
+    showToast(`Build imported${loadIssuesSuffix(result, repaired)}`);
     return true;
   } catch (e) {
     showToast("Failed to read build text");

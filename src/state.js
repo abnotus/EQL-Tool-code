@@ -116,18 +116,19 @@ export function serializePurchaseOrder(purchaseOrder) {
   }).filter(Boolean);
 }
 
-// Returns { purchaseOrder, dropped } — same rationale as deserializeRanks.
+// Unlike deserializeRanks, a dropped purchaseOrder entry isn't its own
+// user-facing signal — reconcilePurchaseOrderCounts (logic.js) checks
+// purchaseOrder's entry count against each AA's actual held rank directly
+// after load and repairs any mismatch, which catches this and every other
+// way the two could end up disagreeing, not just this one cause.
 function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
-  let dropped = 0;
-  const purchaseOrder = (Array.isArray(saved) ? saved : []).map((e) => {
-    if (!e || typeof e !== "object" || typeof e.scope !== "string") { dropped++; return null; }
+  return (Array.isArray(saved) ? saved : []).map((e) => {
+    if (!e || typeof e !== "object" || typeof e.scope !== "string") return null;
     const id = entryIdOf(e);
-    if (id == null) { dropped++; return null; }
+    if (id == null) return null;
     const idx = resolveIdx(e.scope, e.className || null, id);
-    if (idx < 0) { dropped++; return null; }
-    return { scope: e.scope, className: e.className || null, idx };
+    return idx >= 0 ? { scope: e.scope, className: e.className || null, idx } : null;
   }).filter(Boolean);
-  return { purchaseOrder, dropped };
 }
 
 export function saveLocal() {
@@ -154,12 +155,12 @@ export function loadLocal() {
   } catch (e) { return null; }
 }
 
-// Returns { droppedRanks, droppedPurchases } — how many saved entries had a
-// key that no longer resolves to a current AA. Callers use this to tell the
-// user something vanished, instead of a build that's just quietly smaller
-// than they left it.
+// Returns { droppedRanks } — how many saved rank entries had a key that no
+// longer resolves to a current AA. Callers use this to tell the user
+// something vanished, instead of a build that's just quietly smaller than
+// they left it.
 export function applyLoaded(loaded) {
-  if (!loaded) return { droppedRanks: 0, droppedPurchases: 0 };
+  if (!loaded) return { droppedRanks: 0 };
   if (
     Array.isArray(loaded.selectedClasses) &&
     loaded.selectedClasses.length === 3 &&
@@ -182,7 +183,6 @@ export function applyLoaded(loaded) {
   // dropped rather than guessed at.
   const isLegacy = !(typeof loaded.v === "number" && loaded.v >= 4);
   let droppedRanks = 0;
-  let droppedPurchases = 0;
   if (loaded.ranks && typeof loaded.ranks === "object") {
     const result = isLegacy
       ? deserializeRanks(loaded.ranks, (scope, cls, idxStr) => currentIdxForLegacyIdx(scope, cls, parseInt(idxStr, 10)))
@@ -191,11 +191,9 @@ export function applyLoaded(loaded) {
     droppedRanks = result.dropped;
   }
   if (Array.isArray(loaded.purchaseOrder)) {
-    const result = isLegacy
+    state.purchaseOrder = isLegacy
       ? deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.idx === "number" ? e.idx : null), (scope, cls, legacyIdx) => currentIdxForLegacyIdx(scope, cls, legacyIdx))
       : deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.key === "string" ? e.key : null), (scope, cls, key) => idxForKey(scope, cls, key));
-    state.purchaseOrder = result.purchaseOrder;
-    droppedPurchases = result.dropped;
   }
-  return { droppedRanks, droppedPurchases };
+  return { droppedRanks };
 }

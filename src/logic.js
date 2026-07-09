@@ -352,6 +352,82 @@ export function findInvalidatedPicks() {
   return results;
 }
 
+// For every AA the user holds a rank in, purchaseOrder should contain exactly
+// (held rank - any free autoRanks floor, which never goes through
+// purchaseOrder) entries for it. computeProgressionSteps derives the rank
+// number it displays purely by counting purchaseOrder occurrences, so if that
+// count doesn't match the held rank, the Progression tab and export text show
+// a different rank than the tree/side panel do for the same AA — a real
+// desync, not just a stale entry. This can arise independently of ranks
+// deserialization dropping something (e.g. purchaseOrder resolving a key
+// ranks didn't, or any other path that touches one without the other), so
+// it's checked directly rather than inferred from a drop count.
+//
+// Repairs by adding/removing purchaseOrder entries for the affected AA until
+// the count matches again (added at the end / removed from the end, so
+// earlier purchases keep their relative order). state.ranks — the actual
+// points spent — is never touched here; only which rank number a step
+// displays and its position in the sequence can change.
+export function reconcilePurchaseOrderCounts() {
+  function countFor(scope, className, idx) {
+    let n = 0;
+    for (const e of state.purchaseOrder) {
+      if (e.scope === scope && (e.className || null) === (className || null) && e.idx === idx) n++;
+    }
+    return n;
+  }
+  function expectedFor(scope, className, idx, aa, held) {
+    const autoOffset = aa.autoRanks ? Math.min(aa.autoRanks, aa.ranks) : 0;
+    return Math.max(0, held - autoOffset);
+  }
+
+  // aa.auto entries are excluded: nothing ever legitimately writes a
+  // purchaseOrder entry for one (attemptIncrement refuses them before
+  // changeRank runs), so a stray ranks value for one — which effectiveRank
+  // already ignores entirely — should never cause fabricated purchase
+  // history rather than just staying inert.
+  const targets = [];
+  ["general", "archetype", "special"].forEach((scope) => {
+    const list = AA_DATA[scope] || [];
+    Object.keys(state.ranks[scope] || {}).forEach((idxStr) => {
+      const idx = parseInt(idxStr, 10);
+      const aa = list[idx];
+      if (aa && !aa.auto) targets.push({ scope, className: null, idx, aa, held: state.ranks[scope][idxStr] });
+    });
+  });
+  Object.keys(state.ranks.classes || {}).forEach((className) => {
+    const list = AA_DATA.classes[className] || [];
+    Object.keys(state.ranks.classes[className] || {}).forEach((idxStr) => {
+      const idx = parseInt(idxStr, 10);
+      const aa = list[idx];
+      if (aa && !aa.auto) targets.push({ scope: "class", className, idx, aa, held: state.ranks.classes[className][idxStr] });
+    });
+  });
+
+  let repaired = 0;
+  targets.forEach(({ scope, className, idx, aa, held }) => {
+    const expected = expectedFor(scope, className, idx, aa, held);
+    const actual = countFor(scope, className, idx);
+    if (expected === actual) return;
+    repaired++;
+    if (actual > expected) {
+      let toRemove = actual - expected;
+      for (let i = state.purchaseOrder.length - 1; i >= 0 && toRemove > 0; i--) {
+        const e = state.purchaseOrder[i];
+        if (e.scope === scope && (e.className || null) === (className || null) && e.idx === idx) {
+          state.purchaseOrder.splice(i, 1);
+          toRemove--;
+        }
+      }
+    } else {
+      for (let i = 0; i < expected - actual; i++) {
+        state.purchaseOrder.push({ scope, className, idx });
+      }
+    }
+  });
+  return repaired;
+}
+
 // Full reason a rank can't be purchased right now, including affordability.
 export function getBlockReason(catKey, idx) {
   const structural = structuralLockReason(catKey, idx);

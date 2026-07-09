@@ -296,18 +296,19 @@ function serializePurchaseOrder(purchaseOrder) {
   }).filter(Boolean);
 }
 
-// Returns { purchaseOrder, dropped } — same rationale as deserializeRanks.
+// Unlike deserializeRanks, a dropped purchaseOrder entry isn't its own
+// user-facing signal — reconcilePurchaseOrderCounts (logic.js) checks
+// purchaseOrder's entry count against each AA's actual held rank directly
+// after load and repairs any mismatch, which catches this and every other
+// way the two could end up disagreeing, not just this one cause.
 function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
-  let dropped = 0;
-  const purchaseOrder = (Array.isArray(saved) ? saved : []).map((e) => {
-    if (!e || typeof e !== "object" || typeof e.scope !== "string") { dropped++; return null; }
+  return (Array.isArray(saved) ? saved : []).map((e) => {
+    if (!e || typeof e !== "object" || typeof e.scope !== "string") return null;
     const id = entryIdOf(e);
-    if (id == null) { dropped++; return null; }
+    if (id == null) return null;
     const idx = resolveIdx(e.scope, e.className || null, id);
-    if (idx < 0) { dropped++; return null; }
-    return { scope: e.scope, className: e.className || null, idx };
+    return idx >= 0 ? { scope: e.scope, className: e.className || null, idx } : null;
   }).filter(Boolean);
-  return { purchaseOrder, dropped };
 }
 
 function saveLocal() {
@@ -334,12 +335,12 @@ function loadLocal() {
   } catch (e) { return null; }
 }
 
-// Returns { droppedRanks, droppedPurchases } — how many saved entries had a
-// key that no longer resolves to a current AA. Callers use this to tell the
-// user something vanished, instead of a build that's just quietly smaller
-// than they left it.
+// Returns { droppedRanks } — how many saved rank entries had a key that no
+// longer resolves to a current AA. Callers use this to tell the user
+// something vanished, instead of a build that's just quietly smaller than
+// they left it.
 function applyLoaded(loaded) {
-  if (!loaded) return { droppedRanks: 0, droppedPurchases: 0 };
+  if (!loaded) return { droppedRanks: 0 };
   if (
     Array.isArray(loaded.selectedClasses) &&
     loaded.selectedClasses.length === 3 &&
@@ -362,7 +363,6 @@ function applyLoaded(loaded) {
   // dropped rather than guessed at.
   const isLegacy = !(typeof loaded.v === "number" && loaded.v >= 4);
   let droppedRanks = 0;
-  let droppedPurchases = 0;
   if (loaded.ranks && typeof loaded.ranks === "object") {
     const result = isLegacy
       ? deserializeRanks(loaded.ranks, (scope, cls, idxStr) => currentIdxForLegacyIdx(scope, cls, parseInt(idxStr, 10)))
@@ -371,13 +371,11 @@ function applyLoaded(loaded) {
     droppedRanks = result.dropped;
   }
   if (Array.isArray(loaded.purchaseOrder)) {
-    const result = isLegacy
+    state.purchaseOrder = isLegacy
       ? deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.idx === "number" ? e.idx : null), (scope, cls, legacyIdx) => currentIdxForLegacyIdx(scope, cls, legacyIdx))
       : deserializePurchaseOrder(loaded.purchaseOrder, (e) => (typeof e.key === "string" ? e.key : null), (scope, cls, key) => idxForKey(scope, cls, key));
-    state.purchaseOrder = result.purchaseOrder;
-    droppedPurchases = result.dropped;
   }
-  return { droppedRanks, droppedPurchases };
+  return { droppedRanks };
 }
 
 // Business logic: everything that reads or derives from `state` and AA_DATA,
@@ -730,6 +728,82 @@ function findInvalidatedPicks() {
     });
   });
   return results;
+}
+
+// For every AA the user holds a rank in, purchaseOrder should contain exactly
+// (held rank - any free autoRanks floor, which never goes through
+// purchaseOrder) entries for it. computeProgressionSteps derives the rank
+// number it displays purely by counting purchaseOrder occurrences, so if that
+// count doesn't match the held rank, the Progression tab and export text show
+// a different rank than the tree/side panel do for the same AA — a real
+// desync, not just a stale entry. This can arise independently of ranks
+// deserialization dropping something (e.g. purchaseOrder resolving a key
+// ranks didn't, or any other path that touches one without the other), so
+// it's checked directly rather than inferred from a drop count.
+//
+// Repairs by adding/removing purchaseOrder entries for the affected AA until
+// the count matches again (added at the end / removed from the end, so
+// earlier purchases keep their relative order). state.ranks — the actual
+// points spent — is never touched here; only which rank number a step
+// displays and its position in the sequence can change.
+function reconcilePurchaseOrderCounts() {
+  function countFor(scope, className, idx) {
+    let n = 0;
+    for (const e of state.purchaseOrder) {
+      if (e.scope === scope && (e.className || null) === (className || null) && e.idx === idx) n++;
+    }
+    return n;
+  }
+  function expectedFor(scope, className, idx, aa, held) {
+    const autoOffset = aa.autoRanks ? Math.min(aa.autoRanks, aa.ranks) : 0;
+    return Math.max(0, held - autoOffset);
+  }
+
+  // aa.auto entries are excluded: nothing ever legitimately writes a
+  // purchaseOrder entry for one (attemptIncrement refuses them before
+  // changeRank runs), so a stray ranks value for one — which effectiveRank
+  // already ignores entirely — should never cause fabricated purchase
+  // history rather than just staying inert.
+  const targets = [];
+  ["general", "archetype", "special"].forEach((scope) => {
+    const list = AA_DATA[scope] || [];
+    Object.keys(state.ranks[scope] || {}).forEach((idxStr) => {
+      const idx = parseInt(idxStr, 10);
+      const aa = list[idx];
+      if (aa && !aa.auto) targets.push({ scope, className: null, idx, aa, held: state.ranks[scope][idxStr] });
+    });
+  });
+  Object.keys(state.ranks.classes || {}).forEach((className) => {
+    const list = AA_DATA.classes[className] || [];
+    Object.keys(state.ranks.classes[className] || {}).forEach((idxStr) => {
+      const idx = parseInt(idxStr, 10);
+      const aa = list[idx];
+      if (aa && !aa.auto) targets.push({ scope: "class", className, idx, aa, held: state.ranks.classes[className][idxStr] });
+    });
+  });
+
+  let repaired = 0;
+  targets.forEach(({ scope, className, idx, aa, held }) => {
+    const expected = expectedFor(scope, className, idx, aa, held);
+    const actual = countFor(scope, className, idx);
+    if (expected === actual) return;
+    repaired++;
+    if (actual > expected) {
+      let toRemove = actual - expected;
+      for (let i = state.purchaseOrder.length - 1; i >= 0 && toRemove > 0; i--) {
+        const e = state.purchaseOrder[i];
+        if (e.scope === scope && (e.className || null) === (className || null) && e.idx === idx) {
+          state.purchaseOrder.splice(i, 1);
+          toRemove--;
+        }
+      }
+    } else {
+      for (let i = 0; i < expected - actual; i++) {
+        state.purchaseOrder.push({ scope, className, idx });
+      }
+    }
+  });
+  return repaired;
 }
 
 // Full reason a rank can't be purchased right now, including affordability.
@@ -1477,24 +1551,33 @@ function buildShareUrl() {
   return url.toString();
 }
 
-// "N picks from that save no longer exist in the current data and were
-// skipped", or "" if nothing was dropped. Shared wording for every place
-// applyLoaded's result gets surfaced to the user.
-function droppedPicksSuffix(result) {
-  const n = result.droppedRanks;
-  if (!n) return "";
-  return ` (${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped)`;
+// Builds a " (...)" suffix summarizing anything applyLoaded dropped and/or
+// reconcilePurchaseOrderCounts repaired — "" if neither applies. Shared
+// wording for the single-action load paths (share link, text import); the
+// startup path in main.js assembles its own multi-item notice instead, since
+// it can also be reporting on invalidated picks at the same time.
+function loadIssuesSuffix(result, repaired) {
+  const parts = [];
+  if (result.droppedRanks) {
+    const n = result.droppedRanks;
+    parts.push(`${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
+  }
+  if (repaired) {
+    parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
 }
 
 // Called once on startup. If the URL has a ?build= param, offers to load it — with
 // a confirmation if it would clobber an existing non-empty build — then strips the
 // param from the address bar either way so a refresh doesn't re-prompt. Returns
-// true if a shared build was actually applied (so callers know local storage's
-// load got superseded), false otherwise.
+// { applied, notice } rather than toasting directly — main.js is the single
+// place that decides what to show, so this outcome can be combined with
+// other load-time notices into one toast instead of one overwriting another.
 function applySharedBuildFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("build");
-  if (!raw) return false;
+  if (!raw) return { applied: false, notice: null };
 
   let json = null;
   try {
@@ -1504,6 +1587,7 @@ function applySharedBuildFromUrl() {
   }
 
   let applied = false;
+  let notice = null;
   if (json) {
     const hasExisting = spentPoints() > 0;
     const proceed = !hasExisting || confirm("Load the shared build from this link? This will replace your current build. Export your current build first if you want to keep it.");
@@ -1511,18 +1595,19 @@ function applySharedBuildFromUrl() {
       const result = applyLoaded(json);
       state.selectedNode = null;
       clearLastMutation();
+      const repaired = reconcilePurchaseOrderCounts();
       saveLocal();
-      showToast(`Loaded shared build from link${droppedPicksSuffix(result)}`);
+      notice = `Loaded shared build from link${loadIssuesSuffix(result, repaired)}`;
       applied = true;
     }
   } else {
-    showToast("That share link's build data looks invalid");
+    notice = "That share link's build data looks invalid";
   }
 
   const cleanUrl = new URL(window.location.href);
   cleanUrl.searchParams.delete("build");
   window.history.replaceState({}, "", cleanUrl.toString());
-  return applied;
+  return { applied, notice };
 }
 
 function buildExportText() {
@@ -1639,9 +1724,10 @@ function importBuildFromText(text) {
     const result = applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();
+    const repaired = reconcilePurchaseOrderCounts();
     saveLocal();
     renderAll();
-    showToast(`Build imported${droppedPicksSuffix(result)}`);
+    showToast(`Build imported${loadIssuesSuffix(result, repaired)}`);
     return true;
   } catch (e) {
     showToast("Failed to read build text");
@@ -1807,22 +1893,33 @@ function init() {
   cacheDom();
   populateStaticControls();
   const localResult = applyLoaded(loadLocal());
-  // If a share link applies, it replaces whatever localStorage just loaded
-  // (and shows its own toast, including its own drop count) - so the local
-  // load's result no longer describes the build actually in front of the user.
-  const sharedApplied = applySharedBuildFromUrl();
+  // If a share link applies, it replaces whatever localStorage just loaded -
+  // so the local load's result no longer describes the build actually in
+  // front of the user. Neither path toasts directly; this function is the
+  // one place that assembles and shows a load-time notice, so several
+  // simultaneous issues combine into one toast instead of each overwriting
+  // the last.
+  const shared = applySharedBuildFromUrl();
   wireEvents();
   try {
     if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");
   } catch (e) {
     el.disclaimerBanner.classList.remove("hidden");
   }
-  // One consolidated notice rather than stacking toasts — several firing on
-  // first paint reads as breakage even when each one is just informational.
+
   const notices = [];
-  if (!sharedApplied && localResult.droppedRanks) {
+  if (shared.notice) notices.push(shared.notice);
+  if (!shared.applied && localResult.droppedRanks) {
     const n = localResult.droppedRanks;
     notices.push(`${n} saved pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
+  }
+  // purchaseOrder can end up with a different entry count than the rank
+  // actually held for an AA (see reconcilePurchaseOrderCounts) - repair it
+  // before the first render, since computeProgressionSteps would otherwise
+  // display a rank number that disagrees with the tree/side panel.
+  const repaired = reconcilePurchaseOrderCounts();
+  if (repaired) {
+    notices.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
   }
   // Data can drift out from under a saved build (a resync renaming/reshaping a
   // prereq target, say) — catch it once on load rather than leaving the user
@@ -1830,10 +1927,10 @@ function init() {
   const invalidated = findInvalidatedPicks();
   if (invalidated.length) {
     const n = invalidated.length;
-    notices.push(`${n} pick${n === 1 ? "" : "s"} no longer meet${n === 1 ? "s" : ""} its prerequisite`);
+    notices.push(`${n} pick${n === 1 ? "" : "s"} no longer meet${n === 1 ? "s" : ""} its prerequisite — check the highlighted AAs`);
   }
   if (notices.length) {
-    showToast(`${notices.join("; ")} — check the highlighted AAs`);
+    showToast(notices.join("; "));
   }
   renderAll();
 }
