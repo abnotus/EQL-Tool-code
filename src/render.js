@@ -7,7 +7,8 @@ import {
   escapeHtml, iconLetter, highlightRankValue, applyPerRankTotal, labelFor, shortCategoryLabel,
   getList, effectiveRank, structuralLockReason, resolvePrereqTarget, getBlockReason,
   isDependedOn, attemptIncrement, attemptDecrement, countPicked, computeProgressionSteps,
-  costNum, spentPoints, undoLastMutation, canUndo, clearLastMutation, aaMatchesQuery, countMatches
+  costNum, spentPoints, undoLastMutation, canUndo, clearLastMutation, aaMatchesQuery, countMatches,
+  heldRankInvalidReason, findInvalidatedPicks
 } from "./logic.js";
 
 export function renderAll() {
@@ -113,6 +114,7 @@ export function renderTree(catKey) {
     const autoBelowLevel = aa.auto && rank < aa.ranks;
     const lockReason = !aa.auto && rank < aa.ranks ? structuralLockReason(catKey, idx) : null;
     const locked = !!lockReason || autoBelowLevel;
+    const invalidReason = rank > 0 ? heldRankInvalidReason(catKey, idx) : null;
 
     const node = document.createElement("div");
     node.className = "node";
@@ -123,8 +125,10 @@ export function renderTree(catKey) {
     if (aa.auto && !autoBelowLevel) node.classList.add("auto");
     else if (!aa.auto && rank >= aa.ranks) node.classList.add("maxed");
     if (locked) node.classList.add("locked");
+    if (invalidReason) node.classList.add("invalidated");
     if (searching) node.classList.add(aaMatchesQuery(aa, query) ? "search-match" : "search-dim");
-    if (autoBelowLevel) node.title = `Automatically granted at level ${aa.levelReq} — no points needed.`;
+    if (invalidReason) node.title = invalidReason;
+    else if (autoBelowLevel) node.title = `Automatically granted at level ${aa.levelReq} — no points needed.`;
     else if (lockReason) node.title = lockReason;
     else if (aa.auto) node.title = "Automatically granted — no AA points needed.";
     if (state.selectedNode && state.selectedNode.category === catKey && state.selectedNode.idx === idx) {
@@ -152,6 +156,12 @@ export function renderTree(catKey) {
       tag.className = "costtag";
       tag.textContent = aa.costs[rank];
       node.appendChild(tag);
+    }
+    if (invalidReason) {
+      const warn = document.createElement("div");
+      warn.className = "costtag invalid-tag";
+      warn.textContent = "⚠";
+      node.appendChild(warn);
     }
     node.addEventListener("click", () => selectNode(idx));
     node.addEventListener("keydown", (e) => {
@@ -186,10 +196,14 @@ export function renderSidePanel() {
   const blockReason = atMax ? null : getBlockReason(sel.category, sel.idx);
   const nextCost = rank < aa.ranks ? costNum(aa.costs[rank]) : null;
   const dependedOn = rank > 0 && isDependedOn(sel.category, sel.idx, rank);
+  const invalidReason = rank > 0 ? heldRankInvalidReason(sel.category, sel.idx) : null;
 
   let html = `<h2>${escapeHtml(aa.name)}</h2>`;
   html += `<div class="meta">${escapeHtml(labelFor(sel.category))} &middot; Level ${escapeHtml(aa.levelReq)}+</div>`;
   html += `<div class="desc">${highlightRankValue(aa.description, rank)}</div>`;
+  if (invalidReason) {
+    html += `<div class="req-line warn">&#9888; No longer valid: ${escapeHtml(invalidReason)}</div>`;
+  }
   if (aa.prereq) {
     html += `<div class="req-line ${resolved ? "" : "warn"}"><b>Requires:</b> ${escapeHtml(aa.prereq)}</div>`;
   }

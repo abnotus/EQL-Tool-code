@@ -334,6 +334,19 @@ main {
   filter: grayscale(0.7);
 }
 
+.node.invalidated {
+  border-color: #e08b78;
+  box-shadow: 0 0 0 2px rgba(224,139,120,0.35), 0 0 14px rgba(224,139,120,0.3);
+}
+
+.node .costtag.invalid-tag {
+  left: -8px;
+  right: auto;
+  border-color: #e08b78;
+  color: #e08b78;
+  font-weight: 700;
+}
+
 .node.search-match {
   border-color: #e0a83a;
   box-shadow: 0 0 0 2px rgba(224,168,58,0.35), 0 0 14px rgba(224,168,58,0.3);

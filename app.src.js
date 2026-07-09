@@ -605,6 +605,45 @@ function structuralLockReason(catKey, idx) {
   return null;
 }
 
+// Whether a rank the user already holds still satisfies its prerequisite
+// under today's AA_DATA. Unlike structuralLockReason (which checks whether
+// the NEXT rank is purchasable), this checks every rank already held — so it
+// catches drift where the prereq target itself changed shape (renamed,
+// resolved differently, had its own rank requirement adjusted) since the
+// pick was made, even though this AA's own prereq text never changed. No
+// saved history needed: it's purely a function of current state + current
+// data, so it naturally clears itself once the gap is closed.
+function heldRankInvalidReason(catKey, idx) {
+  const aa = getList(catKey)[idx];
+  if (!aa || !aa.prereq) return null;
+  const rank = effectiveRank(catKey, idx);
+  if (rank <= 0) return null;
+  const resolved = resolvePrereqTarget(aa.prereq, catKey);
+  if (!resolved) return null;
+  const targetRank = effectiveRank(resolved.category, resolved.idx);
+  for (let r = 1; r <= rank; r++) {
+    const required = resolved.forRank(r);
+    if (targetRank < required) {
+      const targetAA = getList(resolved.category)[resolved.idx];
+      return `Rank ${r} requires ${targetAA ? targetAA.name : "a prerequisite"} rank ${required}, which you no longer have.`;
+    }
+  }
+  return null;
+}
+
+// Every currently-held pick that fails heldRankInvalidReason, across all
+// categories — for a one-time notice on load.
+function findInvalidatedPicks() {
+  const results = [];
+  AA_CATEGORY_KEYS.forEach((catKey) => {
+    getList(catKey).forEach((aa, idx) => {
+      const reason = heldRankInvalidReason(catKey, idx);
+      if (reason) results.push({ category: catKey, idx, name: aa.name, reason });
+    });
+  });
+  return results;
+}
+
 // Full reason a rank can't be purchased right now, including affordability.
 function getBlockReason(catKey, idx) {
   const structural = structuralLockReason(catKey, idx);
@@ -948,6 +987,7 @@ function renderTree(catKey) {
     const autoBelowLevel = aa.auto && rank < aa.ranks;
     const lockReason = !aa.auto && rank < aa.ranks ? structuralLockReason(catKey, idx) : null;
     const locked = !!lockReason || autoBelowLevel;
+    const invalidReason = rank > 0 ? heldRankInvalidReason(catKey, idx) : null;
 
     const node = document.createElement("div");
     node.className = "node";
@@ -958,8 +998,10 @@ function renderTree(catKey) {
     if (aa.auto && !autoBelowLevel) node.classList.add("auto");
     else if (!aa.auto && rank >= aa.ranks) node.classList.add("maxed");
     if (locked) node.classList.add("locked");
+    if (invalidReason) node.classList.add("invalidated");
     if (searching) node.classList.add(aaMatchesQuery(aa, query) ? "search-match" : "search-dim");
-    if (autoBelowLevel) node.title = `Automatically granted at level ${aa.levelReq} — no points needed.`;
+    if (invalidReason) node.title = invalidReason;
+    else if (autoBelowLevel) node.title = `Automatically granted at level ${aa.levelReq} — no points needed.`;
     else if (lockReason) node.title = lockReason;
     else if (aa.auto) node.title = "Automatically granted — no AA points needed.";
     if (state.selectedNode && state.selectedNode.category === catKey && state.selectedNode.idx === idx) {
@@ -987,6 +1029,12 @@ function renderTree(catKey) {
       tag.className = "costtag";
       tag.textContent = aa.costs[rank];
       node.appendChild(tag);
+    }
+    if (invalidReason) {
+      const warn = document.createElement("div");
+      warn.className = "costtag invalid-tag";
+      warn.textContent = "⚠";
+      node.appendChild(warn);
     }
     node.addEventListener("click", () => selectNode(idx));
     node.addEventListener("keydown", (e) => {
@@ -1021,10 +1069,14 @@ function renderSidePanel() {
   const blockReason = atMax ? null : getBlockReason(sel.category, sel.idx);
   const nextCost = rank < aa.ranks ? costNum(aa.costs[rank]) : null;
   const dependedOn = rank > 0 && isDependedOn(sel.category, sel.idx, rank);
+  const invalidReason = rank > 0 ? heldRankInvalidReason(sel.category, sel.idx) : null;
 
   let html = `<h2>${escapeHtml(aa.name)}</h2>`;
   html += `<div class="meta">${escapeHtml(labelFor(sel.category))} &middot; Level ${escapeHtml(aa.levelReq)}+</div>`;
   html += `<div class="desc">${highlightRankValue(aa.description, rank)}</div>`;
+  if (invalidReason) {
+    html += `<div class="req-line warn">&#9888; No longer valid: ${escapeHtml(invalidReason)}</div>`;
+  }
   if (aa.prereq) {
     html += `<div class="req-line ${resolved ? "" : "warn"}"><b>Requires:</b> ${escapeHtml(aa.prereq)}</div>`;
   }
@@ -1631,6 +1683,14 @@ function init() {
     if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");
   } catch (e) {
     el.disclaimerBanner.classList.remove("hidden");
+  }
+  // Data can drift out from under a saved build (a resync renaming/reshaping a
+  // prereq target, say) — catch it once on load rather than leaving the user
+  // to discover a quietly-broken pick on their own.
+  const invalidated = findInvalidatedPicks();
+  if (invalidated.length) {
+    const n = invalidated.length;
+    showToast(`${n} pick${n === 1 ? "" : "s"} in your build no longer meet${n === 1 ? "s" : ""} its prerequisite — check the highlighted AAs`);
   }
   renderAll();
 }

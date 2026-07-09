@@ -268,6 +268,45 @@ export function structuralLockReason(catKey, idx) {
   return null;
 }
 
+// Whether a rank the user already holds still satisfies its prerequisite
+// under today's AA_DATA. Unlike structuralLockReason (which checks whether
+// the NEXT rank is purchasable), this checks every rank already held — so it
+// catches drift where the prereq target itself changed shape (renamed,
+// resolved differently, had its own rank requirement adjusted) since the
+// pick was made, even though this AA's own prereq text never changed. No
+// saved history needed: it's purely a function of current state + current
+// data, so it naturally clears itself once the gap is closed.
+export function heldRankInvalidReason(catKey, idx) {
+  const aa = getList(catKey)[idx];
+  if (!aa || !aa.prereq) return null;
+  const rank = effectiveRank(catKey, idx);
+  if (rank <= 0) return null;
+  const resolved = resolvePrereqTarget(aa.prereq, catKey);
+  if (!resolved) return null;
+  const targetRank = effectiveRank(resolved.category, resolved.idx);
+  for (let r = 1; r <= rank; r++) {
+    const required = resolved.forRank(r);
+    if (targetRank < required) {
+      const targetAA = getList(resolved.category)[resolved.idx];
+      return `Rank ${r} requires ${targetAA ? targetAA.name : "a prerequisite"} rank ${required}, which you no longer have.`;
+    }
+  }
+  return null;
+}
+
+// Every currently-held pick that fails heldRankInvalidReason, across all
+// categories — for a one-time notice on load.
+export function findInvalidatedPicks() {
+  const results = [];
+  AA_CATEGORY_KEYS.forEach((catKey) => {
+    getList(catKey).forEach((aa, idx) => {
+      const reason = heldRankInvalidReason(catKey, idx);
+      if (reason) results.push({ category: catKey, idx, name: aa.name, reason });
+    });
+  });
+  return results;
+}
+
 // Full reason a rank can't be purchased right now, including affordability.
 export function getBlockReason(catKey, idx) {
   const structural = structuralLockReason(catKey, idx);
