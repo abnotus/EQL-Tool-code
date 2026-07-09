@@ -7,17 +7,23 @@ A talent-calculator-style planner for [EverQuest Legends](https://eqlwiki.com/Al
 ## Features
 
 - Pick up to 3 classes (EQL's tri-class combo system) and spend points across General, Archetype, Class, and Special AAs
-- Prerequisite, level, and affordability checks before you can spend a point
+- Prerequisite (including rank-synced prereqs), level, and affordability checks before you can spend a point
+- Next-rank preview — see what the next rank upgrades to before you buy it, in the side panel and as an expandable row in Progression
+- Global search — highlights matches in the tab you're on and shows match-count badges on other tabs that have matches too
 - **Browse All AAs** — a searchable reference independent of your current build
-- **Build Summary** — everything you've picked, grouped by category
+- **Build Summary** — everything you've picked, grouped by category, with running totals shown for flat "N per rank" AAs
 - **Progression** tab — tracks the order you spent points in, reorderable, with per-step/running-total cost, add/remove controls, and single-level undo
 - Export/import a build as text, or via a shareable URL (open the link, the build loads automatically)
-- Auto-granted AAs (free, level-gated abilities) are applied automatically
+- Auto-granted AAs (free, level-gated abilities, including partially-free abilities) are applied automatically
 - Responsive layout, keyboard-accessible AA selection
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## Data source
 
-All AA data (costs, effects, ranks, prerequisites) is scraped from [eqlwiki.com/Alternate_Advancement](https://eqlwiki.com/Alternate_Advancement). Values marked `?` are undocumented on the wiki itself and treated as 0 until confirmed. The dataset will be re-scraped as the wiki fills in during beta.
+All AA data (costs, effects, ranks, prerequisites) is scraped from [eqlwiki.com/Alternate_Advancement](https://eqlwiki.com/Alternate_Advancement), cross-checked against in-game logs/screenshots where the wiki is silent or wrong. Values marked `?` are undocumented anywhere and treated as 0 until confirmed.
+
+`wiki-sync/scrape_wiki.py` fetches the current AA page via the MediaWiki API and diffs it against a saved snapshot (`wiki-sync/snapshot.json`) to flag what changed on the wiki since the last check. It's run by hand, never on a schedule — see the script's docstring for usage.
 
 ## Running locally
 
