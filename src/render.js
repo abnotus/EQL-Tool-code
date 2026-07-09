@@ -215,7 +215,11 @@ export function renderSidePanel() {
       html += `<div class="req-line warn">Another AA depends on this rank &mdash; lower it first.</div>`;
     }
     if (nextCost !== null) {
-      html += `<div class="req-line">Next rank cost: <b>${escapeHtml(aa.costs[rank])}</b> pt(s)</div>`;
+      const nextRank = rank + 1;
+      html += `<div class="next-rank-box">
+        <div class="next-rank-title">Next Rank (${nextRank}/${aa.ranks}) &middot; costs <b>${escapeHtml(aa.costs[rank])}</b> pt(s)</div>
+        <div class="desc">${highlightRankValue(applyPerRankTotal(aa.description, nextRank), nextRank)}</div>
+      </div>`;
     }
     html += `<div class="rank-costs">` + aa.costs.map((c, i) => `<span class="pip ${i < rank ? "spent" : ""}">R${i + 1}: ${escapeHtml(c)}</span>`).join("") + `</div>`;
     if (aa.costs.some((c) => String(c).trim() === "?")) {
@@ -292,6 +296,13 @@ export function renderSummary() {
   el.summaryContent.innerHTML = anyPicked ? html : '<div class="empty">No AAs selected yet &mdash; spend some points in the calculator, then check back here.</div>';
 }
 
+// Which progression rows have their next-rank preview open, keyed by AA
+// identity + the rank being previewed so it survives reorders sanely. Purely
+// transient UI state — not persisted, and reset takes care of itself since a
+// removed/changed step just stops matching any key.
+const expandedSteps = new Set();
+function expandKey(s) { return `${s.category || ""}:${s.idx}:${s.stepRank}`; }
+
 export function renderProgression() {
   el.undoLastBtn.disabled = !canUndo();
 
@@ -301,7 +312,11 @@ export function renderProgression() {
   }
 
   const steps = computeProgressionSteps();
-  const rows = steps.map((s) => `<div class="progression-row${s.active ? "" : " inactive"}">
+  const rows = steps.map((s) => {
+    const canExpand = !!(s.aa && s.stepRank < s.aa.ranks);
+    const key = expandKey(s);
+    const expanded = canExpand && expandedSteps.has(key);
+    const row = `<div class="progression-row${s.active ? "" : " inactive"}">
       <span class="step-num">${s.index + 1}</span>
       <span class="step-info">
         <span class="step-name">${escapeHtml(s.name)} <span class="step-rank">rank ${s.stepRank}</span></span>
@@ -315,10 +330,18 @@ export function renderProgression() {
       <span class="step-controls">
         <button class="step-btn" data-move="up" data-index="${s.index}" ${s.index === 0 ? "disabled" : ""}>&uarr;</button>
         <button class="step-btn" data-move="down" data-index="${s.index}" ${s.index === steps.length - 1 ? "disabled" : ""}>&darr;</button>
+        <button class="step-btn step-expand${expanded ? " active" : ""}" data-key="${key}" ${canExpand ? "" : "disabled"} title="${canExpand ? "Preview next rank" : "Already at max rank"}">${expanded ? "&and;" : "&or;"}</button>
         <button class="step-btn step-add" data-category="${s.category || ""}" data-idx="${s.idx}" ${s.isLast && s.active && s.aa && s.stepRank < s.aa.ranks ? "" : "disabled"} title="${!s.isLast ? "Only this AA's current top rank can be extended here" : s.aa && s.stepRank >= s.aa.ranks ? "Already at max rank" : "Add another rank"}">+</button>
         <button class="step-btn step-remove" data-category="${s.category || ""}" data-idx="${s.idx}" ${s.isLast && s.active ? "" : "disabled"} title="${!s.isLast ? "Remove this AA's highest rank first" : s.stepRank === 1 ? "Remove this AA from your build" : "Remove this rank"}">${s.stepRank === 1 ? "&times;" : "&minus;"}</button>
       </span>
-    </div>`);
+    </div>`;
+    if (!expanded) return row;
+    const nextRank = s.stepRank + 1;
+    return row + `<div class="next-rank-box progression-next-rank">
+        <div class="next-rank-title">Next Rank (${nextRank}/${s.aa.ranks}) &middot; costs <b>${escapeHtml(s.aa.costs[s.stepRank])}</b> pt(s)</div>
+        <div class="desc">${highlightRankValue(applyPerRankTotal(s.aa.description, nextRank), nextRank)}</div>
+      </div>`;
+  });
 
   el.progressionContent.innerHTML = rows.join("");
   Array.from(el.progressionContent.querySelectorAll(".step-btn[data-move]")).forEach((btn) => {
@@ -327,6 +350,15 @@ export function renderProgression() {
       const idx = parseInt(btn.getAttribute("data-index"), 10);
       const dir = btn.getAttribute("data-move") === "up" ? -1 : 1;
       moveProgressionEntry(idx, dir);
+    });
+  });
+  Array.from(el.progressionContent.querySelectorAll(".step-expand")).forEach((btn) => {
+    if (btn.disabled) return;
+    btn.addEventListener("click", () => {
+      const key = btn.getAttribute("data-key");
+      if (expandedSteps.has(key)) expandedSteps.delete(key);
+      else expandedSteps.add(key);
+      renderProgression();
     });
   });
   Array.from(el.progressionContent.querySelectorAll(".step-add")).forEach((btn) => {

@@ -507,6 +507,27 @@ main {
   text-align: center;
 }
 
+.next-rank-box {
+  margin: 4px 0 14px;
+  padding: 10px 12px;
+  border: 1px dashed var(--green);
+  border-radius: 6px;
+  background: rgba(76,140,82,0.06);
+}
+
+.next-rank-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--green);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.next-rank-box .desc {
+  margin-bottom: 0;
+}
+
 .rank-costs {
   display: flex;
   flex-wrap: wrap;
@@ -756,6 +777,12 @@ main {
 .step-remove:not(:disabled) { color: #e08b78; }
 
 .step-remove:hover:not(:disabled) { border-color: #e08b78; color: #e08b78; background: rgba(224,139,120,0.1); }
+
+.step-expand.active { border-color: var(--accent-bright); color: var(--accent-bright); }
+
+.progression-next-rank {
+  margin: -4px 0 8px 40px;
+}
 
 /* ---------- Export modal ---------- */
 .modal-overlay {
