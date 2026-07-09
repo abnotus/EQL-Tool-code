@@ -20,6 +20,8 @@ A talent-calculator-style planner for [EverQuest Legends](https://eqlwiki.com/Al
 
 Player-facing version history is in the app itself — click the version tag in the bottom-right corner. For everything else, `git log` is the changelog.
 
+Each entry added to `USER_CHANGELOG` (`src/changelogData.js`) gets a matching annotated git tag (`vX.Y.Z`, e.g. `git tag -a v1.1.0 -m "..."`) on the commit that bumped it, then `git push origin vX.Y.Z`. Lets a reported issue be pinned to a specific version.
+
 ## Data source
 
 All AA data (costs, effects, ranks, prerequisites) lives in `data.src.js`, sourced from [eqlwiki.com/Alternate_Advancement](https://eqlwiki.com/Alternate_Advancement) and cross-checked against in-game logs/screenshots where the wiki is silent or wrong. Values marked `?` are undocumented anywhere and treated as 0 until confirmed.
