@@ -66,9 +66,14 @@ if (keyForNameIdx(names, i) === key) return i;
 }
 return -1;
 }
+function currentList(scope, className) {
+return scope === "class" ? (AA_DATA.classes[className] || []) : (AA_DATA[scope] || []);
+}
 function currentNames(scope, className) {
-const list = scope === "class" ? (AA_DATA.classes[className] || []) : (AA_DATA[scope] || []);
-return list.map((aa) => aa.name);
+return currentList(scope, className).map((aa) => aa.name);
+}
+function aaAt(scope, className, idx) {
+return currentList(scope, className)[idx] || null;
 }
 function legacyNames(scope, className) {
 return scope === "class" ? (LEGACY_AA_ORDER.classes[className] || []) : (LEGACY_AA_ORDER[scope] || []);
@@ -86,6 +91,7 @@ const key = keyForNameIdx(names, legacyIdx);
 if (!key) return -1;
 return idxForNameKey(currentNames(scope, className), key);
 }
+const MAX_TOTAL_POINTS = 100000;
 const SAVE_FORMAT_VERSION = 4;
 const STORAGE_KEY = "eql_aa_builder_v1";
 const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed";
@@ -124,6 +130,13 @@ if (Object.keys(outStore).length) out.classes[className] = outStore;
 });
 return out;
 }
+function clampRankValue(scope, className, idx, rawValue) {
+const aa = aaAt(scope, className, idx);
+if (!aa) return 0;
+const n = parseInt(rawValue, 10);
+if (!Number.isFinite(n)) return 0;
+return Math.max(0, Math.min(aa.ranks, n));
+}
 function deserializeRanks(saved, resolveIdx) {
 const out = { general: {}, archetype: {}, special: {}, classes: {} };
 if (!saved || typeof saved !== "object") return out;
@@ -131,7 +144,7 @@ if (!saved || typeof saved !== "object") return out;
 const store = saved[scope] || {};
 Object.keys(store).forEach((k) => {
 const idx = resolveIdx(scope, null, k);
-if (idx >= 0) out[scope][idx] = store[k];
+if (idx >= 0) out[scope][idx] = clampRankValue(scope, null, idx, store[k]);
 });
 });
 const classes = saved.classes || {};
@@ -140,7 +153,7 @@ const store = classes[className] || {};
 const outStore = {};
 Object.keys(store).forEach((k) => {
 const idx = resolveIdx("class", className, k);
-if (idx >= 0) outStore[idx] = store[k];
+if (idx >= 0) outStore[idx] = clampRankValue("class", className, idx, store[k]);
 });
 if (Object.keys(outStore).length) out.classes[className] = outStore;
 });
@@ -197,7 +210,7 @@ if (typeof loaded.charLevel === "number" && !isNaN(loaded.charLevel)) {
 state.charLevel = Math.max(1, Math.min(50, loaded.charLevel));
 }
 if (typeof loaded.totalPoints === "number" && !isNaN(loaded.totalPoints)) {
-state.totalPoints = Math.max(0, loaded.totalPoints);
+state.totalPoints = Math.max(0, Math.min(MAX_TOTAL_POINTS, loaded.totalPoints));
 }
 const isLegacy = !(typeof loaded.v === "number" && loaded.v >= 4);
 if (loaded.ranks && typeof loaded.ranks === "object") {
@@ -1100,15 +1113,17 @@ function extractBuildCode(text) {
 const trimmed = text.trim();
 const m = trimmed.match(/BUILD_CODE:(\S+)/);
 if (m) return m[1];
+const urlMatch = trimmed.match(/[?&]build=([^&\s]+)/);
+if (urlMatch) return urlMatch[1];
 const compact = trimmed.replace(/\s+/g, "");
-if (compact.length > 20 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact)) return compact;
+if (compact.length > 20 && /^[A-Za-z0-9_-]+={0,2}$/.test(compact)) return compact;
 return null;
 }
 function importBuildFromText(text) {
 const code = extractBuildCode(text);
 if (!code) { showToast("No build code found in that text"); return false; }
 try {
-const json = decodeBuildCode(code);
+const json = decodeBuildCode(fromBase64Url(code));
 applyLoaded(json);
 state.selectedNode = null;
 clearLastMutation();

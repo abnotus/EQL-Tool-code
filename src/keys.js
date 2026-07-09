@@ -92,9 +92,19 @@ function idxForNameKey(names, key) {
   return -1;
 }
 
+function currentList(scope, className) {
+  return scope === "class" ? (AA_DATA.classes[className] || []) : (AA_DATA[scope] || []);
+}
+
 function currentNames(scope, className) {
-  const list = scope === "class" ? (AA_DATA.classes[className] || []) : (AA_DATA[scope] || []);
-  return list.map((aa) => aa.name);
+  return currentList(scope, className).map((aa) => aa.name);
+}
+
+// The actual AA object at idx in today's AA_DATA, or null. Used to validate
+// deserialized rank values against the AA's real max rank instead of trusting
+// whatever number was in a save file.
+export function aaAt(scope, className, idx) {
+  return currentList(scope, className)[idx] || null;
 }
 
 function legacyNames(scope, className) {

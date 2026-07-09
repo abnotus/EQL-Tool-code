@@ -1,7 +1,14 @@
 // App-wide constants, the mutable state object, and localStorage persistence.
 // Nothing here touches the DOM — that's render.js / dom.js.
 
-import { keyForIdx, idxForKey, currentIdxForLegacyIdx } from "./keys.js";
+import { keyForIdx, idxForKey, currentIdxForLegacyIdx, aaAt } from "./keys.js";
+
+// A build's totalPoints is a planning input the user sets themselves, but it's
+// also read from untrusted sources (a pasted share link isn't something we
+// generated), so it still gets an upper bound — generous enough that no real
+// build ever approaches it, tight enough that a bogus value doesn't produce
+// nonsense in the UI.
+const MAX_TOTAL_POINTS = 100000;
 
 // Bumped whenever the persisted shape changes. v4 introduced name-based keys
 // for ranks/purchaseOrder (see keys.js) — anything below that is index-based
@@ -56,6 +63,19 @@ export function serializeRanks(ranks) {
   return out;
 }
 
+// Saved rank values come from localStorage, pasted text, or a URL — none of
+// which are guaranteed to have gone through this app. Coerce to an integer
+// and clamp to the AA's real rank range so a bogus value (huge, negative,
+// non-numeric) can't produce a broken-looking build or a costly loop
+// somewhere downstream that assumes ranks are always small and sane.
+function clampRankValue(scope, className, idx, rawValue) {
+  const aa = aaAt(scope, className, idx);
+  if (!aa) return 0;
+  const n = parseInt(rawValue, 10);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(aa.ranks, n));
+}
+
 function deserializeRanks(saved, resolveIdx) {
   const out = { general: {}, archetype: {}, special: {}, classes: {} };
   if (!saved || typeof saved !== "object") return out;
@@ -63,7 +83,7 @@ function deserializeRanks(saved, resolveIdx) {
     const store = saved[scope] || {};
     Object.keys(store).forEach((k) => {
       const idx = resolveIdx(scope, null, k);
-      if (idx >= 0) out[scope][idx] = store[k];
+      if (idx >= 0) out[scope][idx] = clampRankValue(scope, null, idx, store[k]);
     });
   });
   const classes = saved.classes || {};
@@ -72,7 +92,7 @@ function deserializeRanks(saved, resolveIdx) {
     const outStore = {};
     Object.keys(store).forEach((k) => {
       const idx = resolveIdx("class", className, k);
-      if (idx >= 0) outStore[idx] = store[k];
+      if (idx >= 0) outStore[idx] = clampRankValue("class", className, idx, store[k]);
     });
     if (Object.keys(outStore).length) out.classes[className] = outStore;
   });
@@ -134,7 +154,7 @@ export function applyLoaded(loaded) {
     state.charLevel = Math.max(1, Math.min(50, loaded.charLevel));
   }
   if (typeof loaded.totalPoints === "number" && !isNaN(loaded.totalPoints)) {
-    state.totalPoints = Math.max(0, loaded.totalPoints);
+    state.totalPoints = Math.max(0, Math.min(MAX_TOTAL_POINTS, loaded.totalPoints));
   }
   // v4+ saves store name keys, resolved straight against today's AA_DATA.
   // Anything older stored raw indexes against the ordering AA_DATA happened

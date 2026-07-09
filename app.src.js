@@ -99,9 +99,19 @@ function idxForNameKey(names, key) {
   return -1;
 }
 
+function currentList(scope, className) {
+  return scope === "class" ? (AA_DATA.classes[className] || []) : (AA_DATA[scope] || []);
+}
+
 function currentNames(scope, className) {
-  const list = scope === "class" ? (AA_DATA.classes[className] || []) : (AA_DATA[scope] || []);
-  return list.map((aa) => aa.name);
+  return currentList(scope, className).map((aa) => aa.name);
+}
+
+// The actual AA object at idx in today's AA_DATA, or null. Used to validate
+// deserialized rank values against the AA's real max rank instead of trusting
+// whatever number was in a save file.
+function aaAt(scope, className, idx) {
+  return currentList(scope, className)[idx] || null;
 }
 
 function legacyNames(scope, className) {
@@ -135,6 +145,13 @@ function currentIdxForLegacyIdx(scope, className, legacyIdx) {
 
 // App-wide constants, the mutable state object, and localStorage persistence.
 // Nothing here touches the DOM — that's render.js / dom.js.
+
+// A build's totalPoints is a planning input the user sets themselves, but it's
+// also read from untrusted sources (a pasted share link isn't something we
+// generated), so it still gets an upper bound — generous enough that no real
+// build ever approaches it, tight enough that a bogus value doesn't produce
+// nonsense in the UI.
+const MAX_TOTAL_POINTS = 100000;
 
 // Bumped whenever the persisted shape changes. v4 introduced name-based keys
 // for ranks/purchaseOrder (see keys.js) — anything below that is index-based
@@ -189,6 +206,19 @@ function serializeRanks(ranks) {
   return out;
 }
 
+// Saved rank values come from localStorage, pasted text, or a URL — none of
+// which are guaranteed to have gone through this app. Coerce to an integer
+// and clamp to the AA's real rank range so a bogus value (huge, negative,
+// non-numeric) can't produce a broken-looking build or a costly loop
+// somewhere downstream that assumes ranks are always small and sane.
+function clampRankValue(scope, className, idx, rawValue) {
+  const aa = aaAt(scope, className, idx);
+  if (!aa) return 0;
+  const n = parseInt(rawValue, 10);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(aa.ranks, n));
+}
+
 function deserializeRanks(saved, resolveIdx) {
   const out = { general: {}, archetype: {}, special: {}, classes: {} };
   if (!saved || typeof saved !== "object") return out;
@@ -196,7 +226,7 @@ function deserializeRanks(saved, resolveIdx) {
     const store = saved[scope] || {};
     Object.keys(store).forEach((k) => {
       const idx = resolveIdx(scope, null, k);
-      if (idx >= 0) out[scope][idx] = store[k];
+      if (idx >= 0) out[scope][idx] = clampRankValue(scope, null, idx, store[k]);
     });
   });
   const classes = saved.classes || {};
@@ -205,7 +235,7 @@ function deserializeRanks(saved, resolveIdx) {
     const outStore = {};
     Object.keys(store).forEach((k) => {
       const idx = resolveIdx("class", className, k);
-      if (idx >= 0) outStore[idx] = store[k];
+      if (idx >= 0) outStore[idx] = clampRankValue("class", className, idx, store[k]);
     });
     if (Object.keys(outStore).length) out.classes[className] = outStore;
   });
@@ -267,7 +297,7 @@ function applyLoaded(loaded) {
     state.charLevel = Math.max(1, Math.min(50, loaded.charLevel));
   }
   if (typeof loaded.totalPoints === "number" && !isNaN(loaded.totalPoints)) {
-    state.totalPoints = Math.max(0, loaded.totalPoints);
+    state.totalPoints = Math.max(0, Math.min(MAX_TOTAL_POINTS, loaded.totalPoints));
   }
   // v4+ saves store name keys, resolved straight against today's AA_DATA.
   // Anything older stored raw indexes against the ordering AA_DATA happened
@@ -1363,16 +1393,20 @@ function saveExportAsTxt() {
   showToast("Saved as .txt");
 }
 
-// Accepts either the full exported text (with a "BUILD_CODE:" line buried in it)
-// or just the bare base64 code on its own, so pasting either works.
+// Accepts the full exported text (with a "BUILD_CODE:" line buried in it), a
+// whole pasted share link (?build=... pulled out of it), or just the bare
+// code on its own — standard base64 (export text) or base64url (share
+// links), so pasting any of the things this app itself produces works.
 function extractBuildCode(text) {
   const trimmed = text.trim();
   const m = trimmed.match(/BUILD_CODE:(\S+)/);
   if (m) return m[1];
+  const urlMatch = trimmed.match(/[?&]build=([^&\s]+)/);
+  if (urlMatch) return urlMatch[1];
   // Maybe they pasted just the bare code, possibly line-wrapped by whatever they copied
-  // it from — strip all embedded whitespace before checking if it looks like base64.
+  // it from — strip all embedded whitespace before checking if it looks like base64/base64url.
   const compact = trimmed.replace(/\s+/g, "");
-  if (compact.length > 20 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact)) return compact;
+  if (compact.length > 20 && /^[A-Za-z0-9_-]+={0,2}$/.test(compact)) return compact;
   return null;
 }
 
@@ -1380,7 +1414,10 @@ function importBuildFromText(text) {
   const code = extractBuildCode(text);
   if (!code) { showToast("No build code found in that text"); return false; }
   try {
-    const json = decodeBuildCode(code);
+    // fromBase64Url is a no-op on plain base64 (only touches -/_ chars and
+    // pads to length%4, which export-text codes already satisfy), so it's
+    // safe to always apply regardless of which format `code` came from.
+    const json = decodeBuildCode(fromBase64Url(code));
     applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();

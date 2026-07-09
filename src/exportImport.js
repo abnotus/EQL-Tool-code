@@ -166,16 +166,20 @@ export function saveExportAsTxt() {
   showToast("Saved as .txt");
 }
 
-// Accepts either the full exported text (with a "BUILD_CODE:" line buried in it)
-// or just the bare base64 code on its own, so pasting either works.
+// Accepts the full exported text (with a "BUILD_CODE:" line buried in it), a
+// whole pasted share link (?build=... pulled out of it), or just the bare
+// code on its own — standard base64 (export text) or base64url (share
+// links), so pasting any of the things this app itself produces works.
 export function extractBuildCode(text) {
   const trimmed = text.trim();
   const m = trimmed.match(/BUILD_CODE:(\S+)/);
   if (m) return m[1];
+  const urlMatch = trimmed.match(/[?&]build=([^&\s]+)/);
+  if (urlMatch) return urlMatch[1];
   // Maybe they pasted just the bare code, possibly line-wrapped by whatever they copied
-  // it from — strip all embedded whitespace before checking if it looks like base64.
+  // it from — strip all embedded whitespace before checking if it looks like base64/base64url.
   const compact = trimmed.replace(/\s+/g, "");
-  if (compact.length > 20 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact)) return compact;
+  if (compact.length > 20 && /^[A-Za-z0-9_-]+={0,2}$/.test(compact)) return compact;
   return null;
 }
 
@@ -183,7 +187,10 @@ export function importBuildFromText(text) {
   const code = extractBuildCode(text);
   if (!code) { showToast("No build code found in that text"); return false; }
   try {
-    const json = decodeBuildCode(code);
+    // fromBase64Url is a no-op on plain base64 (only touches -/_ chars and
+    // pads to length%4, which export-text codes already satisfy), so it's
+    // safe to always apply regardless of which format `code` came from.
+    const json = decodeBuildCode(fromBase64Url(code));
     applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();
