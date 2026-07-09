@@ -197,6 +197,7 @@ const SAVE_FORMAT_VERSION = 4;
 
 const STORAGE_KEY = "eql_aa_builder_v1";
 const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed";
+const LAST_SEEN_VERSION_KEY = "eql_aa_last_seen_version";
 const CLASS_SLOT_KEYS = ["classSlot0", "classSlot1", "classSlot2"];
 // Canonical display/iteration order for the 6 real AA categories (excludes the
 // Summary/Progression meta-views, which aren't AA categories).
@@ -1389,6 +1390,24 @@ function populateStaticControls() {
   // the corner tag and the unread-dot comparison both read it from here, so
   // they can't disagree about what the latest version is.
   if (USER_CHANGELOG[0]) el.versionTag.textContent = `v${USER_CHANGELOG[0].version}`;
+  updateVersionDot();
+}
+
+// Shows a small dot on the version tag when the latest changelog entry is
+// newer than whatever the user last saw. A first-ever visit has nothing to
+// be "behind" — it seeds the stored version silently instead of showing a
+// dot for a changelog the user has no history with.
+function updateVersionDot() {
+  const current = USER_CHANGELOG[0] && USER_CHANGELOG[0].version;
+  if (!current) return;
+  let lastSeen = null;
+  try { lastSeen = localStorage.getItem(LAST_SEEN_VERSION_KEY); } catch (e) { /* storage unavailable */ }
+  if (lastSeen === null) {
+    try { localStorage.setItem(LAST_SEEN_VERSION_KEY, current); } catch (e) { /* storage unavailable */ }
+    el.versionTag.classList.remove("unread");
+    return;
+  }
+  el.versionTag.classList.toggle("unread", lastSeen !== current);
 }
 
 function showToast(msg) {
@@ -1405,6 +1424,10 @@ function openChangelogModal() {
       <ul>${entry.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
     </div>`).join("") || '<div class="empty">Nothing here yet.</div>';
   el.changelogModal.classList.remove("hidden");
+  el.versionTag.classList.remove("unread");
+  if (USER_CHANGELOG[0]) {
+    try { localStorage.setItem(LAST_SEEN_VERSION_KEY, USER_CHANGELOG[0].version); } catch (e) { /* storage unavailable */ }
+  }
 }
 
 function closeChangelogModal() {

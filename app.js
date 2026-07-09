@@ -116,6 +116,7 @@ const MAX_TOTAL_POINTS = 100000;
 const SAVE_FORMAT_VERSION = 4;
 const STORAGE_KEY = "eql_aa_builder_v1";
 const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed";
+const LAST_SEEN_VERSION_KEY = "eql_aa_last_seen_version";
 const CLASS_SLOT_KEYS = ["classSlot0", "classSlot1", "classSlot2"];
 const AA_CATEGORY_KEYS = ["general", "archetype", ...CLASS_SLOT_KEYS, "special"];
 let state = {
@@ -1067,6 +1068,19 @@ el.browseFilter.innerHTML =
 CLASS_LIST.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("") +
 `</optgroup>`;
 if (USER_CHANGELOG[0]) el.versionTag.textContent = `v${USER_CHANGELOG[0].version}`;
+updateVersionDot();
+}
+function updateVersionDot() {
+const current = USER_CHANGELOG[0] && USER_CHANGELOG[0].version;
+if (!current) return;
+let lastSeen = null;
+try { lastSeen = localStorage.getItem(LAST_SEEN_VERSION_KEY); } catch (e) { /* storage unavailable */ }
+if (lastSeen === null) {
+try { localStorage.setItem(LAST_SEEN_VERSION_KEY, current); } catch (e) { /* storage unavailable */ }
+el.versionTag.classList.remove("unread");
+return;
+}
+el.versionTag.classList.toggle("unread", lastSeen !== current);
 }
 function showToast(msg) {
 el.toast.textContent = msg;
@@ -1081,6 +1095,10 @@ el.changelogContent.innerHTML = USER_CHANGELOG.map((entry) => `
       <ul>${entry.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
     </div>`).join("") || '<div class="empty">Nothing here yet.</div>';
 el.changelogModal.classList.remove("hidden");
+el.versionTag.classList.remove("unread");
+if (USER_CHANGELOG[0]) {
+try { localStorage.setItem(LAST_SEEN_VERSION_KEY, USER_CHANGELOG[0].version); } catch (e) { /* storage unavailable */ }
+}
 }
 function closeChangelogModal() {
 el.changelogModal.classList.add("hidden");

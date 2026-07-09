@@ -17,6 +17,7 @@ export const SAVE_FORMAT_VERSION = 4;
 
 export const STORAGE_KEY = "eql_aa_builder_v1";
 export const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed";
+export const LAST_SEEN_VERSION_KEY = "eql_aa_last_seen_version";
 export const CLASS_SLOT_KEYS = ["classSlot0", "classSlot1", "classSlot2"];
 // Canonical display/iteration order for the 6 real AA categories (excludes the
 // Summary/Progression meta-views, which aren't AA categories).
