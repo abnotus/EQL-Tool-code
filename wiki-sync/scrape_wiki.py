@@ -12,6 +12,11 @@ since that snapshot, then overwrites snapshot.json with the current state.
 
 First run has no prior snapshot, so everything is reported as new baseline
 and nothing is treated as a "change".
+
+Refuses to overwrite the snapshot if parsing found 0 rows, or >20% fewer rows
+than last time - both usually mean the table parser broke on a wiki markup
+change, not that abilities actually vanished. Pass --accept to save anyway
+if a drop that size is genuinely expected.
 """
 import json
 import re
@@ -45,6 +50,12 @@ def fetch_page():
     if "missing" in page:
         raise RuntimeError(f"Page '{PAGE_TITLE}' is missing/deleted on the wiki.")
     rev = page["revisions"][0]
+    if "texthidden" in rev or "suppressed" in rev:
+        raise RuntimeError(
+            f"Current revision (revid {rev.get('revid', '?')}) of '{PAGE_TITLE}' has its "
+            "content hidden/suppressed (RevisionDelete/oversight), so there's no wikitext "
+            "to read. Check the page history on the wiki directly."
+        )
     return {
         "pageid": page["pageid"],
         "revid": rev["revid"],
@@ -128,6 +139,8 @@ def save_snapshot(pageid, revid, flat):
 
 
 def main():
+    accept = "--accept" in sys.argv
+
     print(f"Fetching '{PAGE_TITLE}' from {WIKI_API} ...")
     page = fetch_page()
     wiki = parse_sections(page["content"])
@@ -135,7 +148,30 @@ def main():
     total = sum(len(v) for v in wiki.values())
     print(f"Parsed {total} AA rows across {len(wiki)} categories. pageid={page['pageid']} revid={page['revid']}")
 
+    # A wiki markup change (e.g. cells moving from "||"-separated to one-per-line)
+    # can make parse_table silently return nothing instead of erroring. Refusing to
+    # save in that case matters more than usual here: save_snapshot is the only copy
+    # of "what the wiki said last time," and overwriting it with garbage is a step
+    # that can't be undone by re-running the script.
+    if total == 0:
+        print(
+            "\nERROR: parsed 0 AA rows. The page format probably changed and the table "
+            "parser needs updating - refusing to overwrite the snapshot with this."
+        )
+        return 1
+
     prev = load_snapshot()
+    if prev is not None:
+        prev_total = len(prev["abilities"])
+        if prev_total > 0 and total < prev_total * 0.8 and not accept:
+            print(
+                f"\nERROR: parsed {total} rows, down from {prev_total} in the last snapshot "
+                "(>20% drop). That almost always means the parser broke on a wiki markup "
+                "change, not that abilities were actually removed. Refusing to overwrite "
+                "the snapshot.\nIf this drop is real and expected, re-run with --accept."
+            )
+            return 1
+
     if prev is None:
         print("\nNo prior snapshot found - this run establishes the baseline.")
         added = list(flat.keys())
