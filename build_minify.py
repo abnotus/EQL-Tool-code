@@ -78,7 +78,7 @@ def assemble_app_src():
         f"{body}\n"
         "})();\n"
     )
-    with open("app.src.js", "w", encoding="utf-8") as f:
+    with open("app.src.js", "w", encoding="utf-8", newline="\n") as f:
         f.write(assembled)
     print(f"Assembled {len(SRC_MODULE_ORDER)} src/*.js modules -> app.src.js")
 
@@ -296,7 +296,7 @@ def stamp_index_html(outputs):
         html = f.read()
     stamped = VERSIONED_ASSET.sub(lambda m: f'{m.group(1)}="{m.group(2)}?v={version}"', html)
     if stamped != html:
-        with open("index.html", "w", encoding="utf-8") as f:
+        with open("index.html", "w", encoding="utf-8", newline="\n") as f:
             f.write(stamped)
     print(f"index.html stamped with cache-busting version {version}")
 
@@ -326,7 +326,7 @@ def main():
         with open(src_name, "r", encoding="utf-8") as f:
             src = f.read()
         minified = minify(src)
-        with open(out_name, "w", encoding="utf-8") as f:
+        with open(out_name, "w", encoding="utf-8", newline="\n") as f:
             f.write(minified)
         outputs[out_name] = minified
         before = len(src)

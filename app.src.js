@@ -1820,7 +1820,10 @@ function expandCompactPayload(compact) {
 // a maxed 6-rank AA repeats the same scope/className/key six times), so
 // gzip beats every hand-rolled format short of assigning every AA a stable
 // numeric id, which is a bigger change than this one. CompressionStream is
-// the standard streams-based API for this; no library needed.
+// the standard streams-based API for this; no library needed. Needs Firefox
+// 113+ / Safari 16.4+ (mid-2023) - no feature-detection fallback, since
+// that's an old floor for this app's audience; an unsupported browser fails
+// on both encode and decode (share links / export text), not just one.
 async function gzipCompress(bytes) {
   const cs = new CompressionStream("gzip");
   const writer = cs.writable.getWriter();

@@ -131,7 +131,14 @@ def write_table(table):
         f"{body}\n"
         "};\n"
     )
-    IDS_FILE.write_text(content, encoding="utf-8")
+    # Plain open()+write() rather than Path.write_text(), since write_text's
+    # newline= parameter needs Python 3.10+. newline="\n" keeps the
+    # working-tree file LF on Windows too - .gitattributes (* text=auto
+    # eol=lf) would normalize it on commit either way, but writing it
+    # correctly to begin with means git status doesn't show a phantom diff
+    # the moment git touches the file.
+    with open(IDS_FILE, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
 
 
 def main():
