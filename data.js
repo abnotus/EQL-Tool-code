@@ -15,7 +15,7 @@ general: [
 { name: "Combat Fury", ranks: 4, costs: ["1","?","4","6"], levelReq: "1", description: "Increases your chance of performing a critical melee hit with all skills by 1/?/5/10%." },
 { name: "Combat Stability", ranks: 3, costs: ["2","?","?"], levelReq: "1", description: "Increases the armor class soft cap of your class by 2/5/?%." },
 { name: "Crafting Mastery", ranks: 6, costs: ["3","?","?","?","?","?"], levelReq: "1", description: "Allows raising 1-6 additional tradeskills from a 200 to 300 cap." },
-{ name: "Fear Resistance", ranks: 4, costs: ["2","4","6","?"], levelReq: "1", description: "Grants you an additional 25/50/75/100% chance to resist most fear spells." },
+{ name: "Fear Resistance", ranks: 4, costs: ["2","4","6","9"], levelReq: "1", description: "Grants you an additional 25/50/75/100% chance to resist most fear spells." },
 { name: "First Aid", ranks: 6, costs: ["1","?","?","?","?","?"], levelReq: "1", description: "Increases the maximum health you can bind wound to 80/90/100/100/100/100%, and increases bandage healing by 0/0/0/10/25/50%." },
 { name: "Fletching Mastery", ranks: 3, costs: ["2","?","?"], levelReq: "1", description: "Reduces the chance of failing Fletching recipes by 10/?/?%." },
 { name: "Foraging", ranks: 1, costs: ["3"], levelReq: "1", description: "Increases your Forage skill cap by 50 points." },
@@ -135,7 +135,7 @@ classes: {
 "Paladin": [
 { name: "Act of Valor", ranks: 1, costs: ["3"], levelReq: "20", description: "Activated: allows you to sacrifice yourself in order to transfer all of your remaining health to your target. (Refresh 1:12:00)" },
 { name: "Divine Stun", ranks: 1, costs: ["9"], levelReq: "35", description: "Activated: instantly pushes your target backwards and attempts to stun a level 70 or lower target for 2 seconds. (Refresh 0:00:30)" },
-{ name: "Holy Steed", ranks: 1, costs: ["5"], levelReq: "20", description: "Activated: summons the bridle of a very fast Holy Steed." },
+{ name: "Holy Steed", ranks: 1, costs: ["5"], levelReq: "20", description: "Activated: summons the bridle of a very fast Holy Steed (75 Velocity)." },
 { name: "Lay on Hands", ranks: 10, costs: ["0","0","0","0","0","0","0","0","0","0"], levelReq: "6", auto: true, description: "Activated: instantly heals a friendly target (or an unfriendly target's target) for 6251 health, scaling by level. (Refresh 0:15:00)" },
 { name: "Slay Undead", ranks: 3, costs: ["3","?","?"], levelReq: "1", description: "Grants your melee attacks a 2.25% chance to deal 445% damage against undead and vampiric targets." },
 { name: "Valiant Steed", ranks: 1, costs: ["9"], levelReq: "50", prereq: "Requires Holy Steed at level 1", description: "Activated: summons the bridle of a very fast Valiant Unicorn." }

@@ -1,6 +1,6 @@
 {
   "pageid": 56762,
-  "revid": 155606,
+  "revid": 156149,
   "abilities": {
     "general::Adamant Will::0": {
       "ranks": "4",
@@ -104,7 +104,7 @@
         "2",
         "4",
         "6",
-        "?"
+        "9"
       ],
       "description": "This passive ability grants you an additional 25/50/75/100% chance to resist most fear spells and increases the chance of breaking fear earlier. Requirements: level 1."
     },
@@ -478,7 +478,7 @@
         "4",
         "5"
       ],
-      "description": "This passive ability increases your mana regeneration by 1 point. Requirements: level 1."
+      "description": "This passive ability increases your mana regeneration by 1 points per rank. Requirements: level 1."
     },
     "archetype::Mnemonic Retention::0": {
       "ranks": "6",
@@ -898,7 +898,7 @@
       "costs": [
         "5"
       ],
-      "description": "Ability Activation ID: 77 - Refresh Time: 0:00:01 - Ability Timer(s): 0. This ability, when activated, summons the bridle of a very fast Holy Steed. Requirements: level 20."
+      "description": "Ability Activation ID: 77 - Refresh Time: 0:00:01 - Ability Timer(s): 0. This ability, when activated, summons the bridle of a very fast Holy Steed (75 Velocity). Requirements: level 20."
     },
     "class:Paladin::Lay on Hands::0": {
       "ranks": "10",
