@@ -1248,19 +1248,25 @@ const expandedSteps = new Set();
 function expandKey(s) { return `${s.category || ""}:${s.idx}:${s.stepRank}`; }
 const PROGRESSION_DRAG_TYPE = "application/x-aacalc-progression-step";
 let dragSrcIndex = null;
+let dragBaselineWarnCount = 0;
 function clearDragOverMarks() {
 Array.from(el.progressionContent.querySelectorAll(".progression-row")).forEach((r) => {
 r.classList.remove("drag-over-top", "drag-over-bottom", "drag-warn");
 });
 }
-function dragWouldLeavePrereqUnmet(toIndex) {
+function countPrereqWarns(steps) {
+return steps.reduce((n, s) => n + (s.prereqWarn ? 1 : 0), 0);
+}
+function dragWouldIntroduceWarn(toIndex) {
 if (dragSrcIndex === null) return false;
 let insertAt = toIndex > dragSrcIndex ? toIndex - 1 : toIndex;
 if (insertAt === dragSrcIndex) return false;
 const hypothetical = state.purchaseOrder.slice();
 const [entry] = hypothetical.splice(dragSrcIndex, 1);
 hypothetical.splice(insertAt, 0, entry);
-return computeProgressionSteps(hypothetical)[insertAt].prereqWarn;
+const hypoSteps = computeProgressionSteps(hypothetical);
+if (hypoSteps[insertAt].prereqWarn) return true;
+return countPrereqWarns(hypoSteps) > dragBaselineWarnCount;
 }
 function renderProgression() {
 el.undoLastBtn.disabled = !canUndo();
@@ -1337,6 +1343,7 @@ applyAttempt(attemptDecrement(category, idx));
 Array.from(el.progressionContent.querySelectorAll(".progression-row")).forEach((rowEl) => {
 rowEl.addEventListener("dragstart", (e) => {
 dragSrcIndex = parseInt(rowEl.getAttribute("data-index"), 10);
+dragBaselineWarnCount = countPrereqWarns(computeProgressionSteps());
 rowEl.classList.add("dragging");
 e.dataTransfer.effectAllowed = "move";
 e.dataTransfer.setData("text/plain", String(dragSrcIndex));
@@ -1358,7 +1365,7 @@ const rect = rowEl.getBoundingClientRect();
 const before = e.clientY - rect.top < rect.height / 2;
 const toIndex = before ? overIndex : overIndex + 1;
 rowEl.classList.add(before ? "drag-over-top" : "drag-over-bottom");
-if (dragWouldLeavePrereqUnmet(toIndex)) rowEl.classList.add("drag-warn");
+if (dragWouldIntroduceWarn(toIndex)) rowEl.classList.add("drag-warn");
 });
 rowEl.addEventListener("drop", (e) => {
 if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
@@ -1381,7 +1388,7 @@ clearDragOverMarks();
 const overIndex = parseInt(ownerRow.getAttribute("data-index"), 10);
 if (overIndex === dragSrcIndex) return;
 ownerRow.classList.add("drag-over-bottom");
-if (dragWouldLeavePrereqUnmet(overIndex + 1)) ownerRow.classList.add("drag-warn");
+if (dragWouldIntroduceWarn(overIndex + 1)) ownerRow.classList.add("drag-warn");
 });
 boxEl.addEventListener("drop", (e) => {
 if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
@@ -1435,7 +1442,7 @@ clearDragOverMarks();
 const last = lastProgressionRow();
 if (last && parseInt(last.getAttribute("data-index"), 10) !== dragSrcIndex) {
 last.classList.add("drag-over-bottom");
-if (dragWouldLeavePrereqUnmet(state.purchaseOrder.length)) last.classList.add("drag-warn");
+if (dragWouldIntroduceWarn(state.purchaseOrder.length)) last.classList.add("drag-warn");
 }
 });
 el.progressionWrap.addEventListener("drop", (e) => {

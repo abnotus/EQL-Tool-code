@@ -725,11 +725,19 @@ main {
    "the class isn't even in your build". Applied per-child rather than to the
    row itself so the ⚠ - the one thing that should stay legible - isn't
    flattened along with everything else by the parent's own opacity.
-   inactive still wins if a row is somehow both, since that's the more
-   fundamental reason to dim it. */
+   No .inactive combo rule: computeProgressionSteps gates prereqWarn behind
+   `active`, so a row can never be both inactive and prereq-warn-row today -
+   if that gate ever loosens (e.g. warning on deselected classes too), this
+   needs an explicit combo rule, not silence, since opacity would otherwise
+   compound (0.45 row × 0.6 children = 0.27, darker than either alone). */
 .progression-row.prereq-warn-row > *:not(.step-warn) { opacity: 0.6; }
 
-.progression-row.inactive.prereq-warn-row { opacity: 0.45; }
+/* .dragging's 0.4 is on the row itself; without this override, a warned
+   row's own child-dimming compounds with it while being dragged (0.4 × 0.6
+   = 0.24, reachable any time you grab an already-out-of-order row, and
+   near-invisible). Let .dragging's row-level dim be the only one in effect
+   while actively dragging instead. */
+.progression-row.dragging.prereq-warn-row > *:not(.step-warn) { opacity: 1; }
 
 .progression-row.dragging { opacity: 0.4; }
 

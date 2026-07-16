@@ -367,6 +367,10 @@ function expandKey(s) { return `${s.category || ""}:${s.idx}:${s.stepRank}`; }
 // drag simply won't carry it, no matter what dragSrcIndex last happened to be.
 const PROGRESSION_DRAG_TYPE = "application/x-aacalc-progression-step";
 let dragSrcIndex = null;
+// Total prereqWarn count in the real, un-dragged order, snapshotted at
+// dragstart - the baseline dragWouldIntroduceWarn diffs hypothetical
+// arrangements against. See that function for why a baseline is needed at all.
+let dragBaselineWarnCount = 0;
 
 function clearDragOverMarks() {
   Array.from(el.progressionContent.querySelectorAll(".progression-row")).forEach((r) => {
@@ -374,22 +378,44 @@ function clearDragOverMarks() {
   });
 }
 
+function countPrereqWarns(steps) {
+  return steps.reduce((n, s) => n + (s.prereqWarn ? 1 : 0), 0);
+}
+
 // Whether dropping the step currently being dragged at `toIndex` (an
-// insertion point, same convention as moveProgressionEntryTo) would leave
-// its OWN prerequisite unmet at that point in the resulting sequence - a
-// pure look-ahead for the drag indicator, computed against a throwaway copy
-// so it never touches real state. Deliberately scoped to just the dragged
-// step, not anything that might depend on it landing somewhere specific -
-// same scope as every other prereq indicator in the app (the post-drop ⚠,
-// structuralLockReason, etc. all only ever check a step's own prereq).
-function dragWouldLeavePrereqUnmet(toIndex) {
+// insertion point, same convention as moveProgressionEntryTo) would introduce
+// a prereq warning that doesn't already exist - a pure look-ahead for the
+// drag indicator, computed against a throwaway copy so it never touches real
+// state.
+//
+// This checks two things, not just the dragged step's own prereq: dragging X
+// out from directly above its own dependent Y (order [X, Y] -> drag X below
+// Y) leaves X's own prereq perfectly satisfied wherever it lands, so a check
+// scoped to X alone reports "fine" right up until the drop, at which point Y
+// lights up amber - the indicator would have promised something the drop
+// didn't deliver, in the reassuring direction rather than the alarming one.
+// Comparing the hypothetical arrangement's total warn count against the real
+// order's count (dragBaselineWarnCount) catches that for roughly free, since
+// computeProgressionSteps(hypothetical) is already being computed anyway.
+//
+// A pure count comparison alone would miss a swap that trades one warn for a
+// different one (count unchanged, problem moved) - so this keeps the direct
+// "does the dragged step's own slot warn" check too, rather than replacing
+// it. Between the two, every count-changing case and every own-prereq case
+// is covered; only a same-count swap of *which other* step warns (not
+// involving the dragged step's own prereq at all) could still slip through,
+// and that's an existing-warn-swapping-to-a-different-existing-warn edge
+// case rare enough not to be worth a full "diff which steps changed" pass.
+function dragWouldIntroduceWarn(toIndex) {
   if (dragSrcIndex === null) return false;
   let insertAt = toIndex > dragSrcIndex ? toIndex - 1 : toIndex;
   if (insertAt === dragSrcIndex) return false; // no-op move, nothing changes
   const hypothetical = state.purchaseOrder.slice();
   const [entry] = hypothetical.splice(dragSrcIndex, 1);
   hypothetical.splice(insertAt, 0, entry);
-  return computeProgressionSteps(hypothetical)[insertAt].prereqWarn;
+  const hypoSteps = computeProgressionSteps(hypothetical);
+  if (hypoSteps[insertAt].prereqWarn) return true;
+  return countPrereqWarns(hypoSteps) > dragBaselineWarnCount;
 }
 
 export function renderProgression() {
@@ -471,6 +497,7 @@ export function renderProgression() {
   Array.from(el.progressionContent.querySelectorAll(".progression-row")).forEach((rowEl) => {
     rowEl.addEventListener("dragstart", (e) => {
       dragSrcIndex = parseInt(rowEl.getAttribute("data-index"), 10);
+      dragBaselineWarnCount = countPrereqWarns(computeProgressionSteps());
       rowEl.classList.add("dragging");
       e.dataTransfer.effectAllowed = "move";
       // Firefox won't start the drag at all unless setData is called.
@@ -493,7 +520,7 @@ export function renderProgression() {
       const before = e.clientY - rect.top < rect.height / 2;
       const toIndex = before ? overIndex : overIndex + 1;
       rowEl.classList.add(before ? "drag-over-top" : "drag-over-bottom");
-      if (dragWouldLeavePrereqUnmet(toIndex)) rowEl.classList.add("drag-warn");
+      if (dragWouldIntroduceWarn(toIndex)) rowEl.classList.add("drag-warn");
     });
     rowEl.addEventListener("drop", (e) => {
       if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
@@ -523,7 +550,7 @@ export function renderProgression() {
       const overIndex = parseInt(ownerRow.getAttribute("data-index"), 10);
       if (overIndex === dragSrcIndex) return;
       ownerRow.classList.add("drag-over-bottom");
-      if (dragWouldLeavePrereqUnmet(overIndex + 1)) ownerRow.classList.add("drag-warn");
+      if (dragWouldIntroduceWarn(overIndex + 1)) ownerRow.classList.add("drag-warn");
     });
     boxEl.addEventListener("drop", (e) => {
       if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
@@ -618,7 +645,7 @@ export function wireProgressionDropZone() {
     const last = lastProgressionRow();
     if (last && parseInt(last.getAttribute("data-index"), 10) !== dragSrcIndex) {
       last.classList.add("drag-over-bottom");
-      if (dragWouldLeavePrereqUnmet(state.purchaseOrder.length)) last.classList.add("drag-warn");
+      if (dragWouldIntroduceWarn(state.purchaseOrder.length)) last.classList.add("drag-warn");
     }
   });
   el.progressionWrap.addEventListener("drop", (e) => {
