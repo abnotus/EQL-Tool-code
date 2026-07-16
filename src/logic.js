@@ -287,20 +287,24 @@ function unresolvedPrereqMessage(text, attempt) {
 }
 
 // Structural reasons (level / prerequisite) that permanently block a rank regardless of points.
+// Returns { kind: "level" | "prereq", text } rather than a bare string so callers that render
+// (not just report) a lock reason can tell a level-gate apart from a prerequisite-gate - the two
+// need different treatment in the tree, since "level too low" is self-evidently solved by playing,
+// while "needs another AA" requires the user to notice and go buy something specific elsewhere.
 export function structuralLockReason(catKey, idx) {
   const aa = getList(catKey)[idx];
   const levelReq = parseInt(aa.levelReq, 10) || 1;
-  if (state.charLevel < levelReq) return `Requires character level ${levelReq}.`;
+  if (state.charLevel < levelReq) return { kind: "level", text: `Requires character level ${levelReq}.` };
   if (aa.prereq) {
     const attempt = tryResolvePrereq(aa.prereq, catKey);
-    if (!attempt.ok) return unresolvedPrereqMessage(aa.prereq, attempt);
+    if (!attempt.ok) return { kind: "prereq", text: unresolvedPrereqMessage(aa.prereq, attempt) };
     const resolved = attempt.resolved;
     const sourceRank = effectiveRank(catKey, idx) + 1; // the rank about to be purchased
     const requiredRank = resolved.forRank(sourceRank);
     const targetRank = effectiveRank(resolved.category, resolved.idx);
     if (targetRank < requiredRank) {
       const targetAA = getList(resolved.category)[resolved.idx];
-      return `Requires ${targetAA ? targetAA.name : "prerequisite"} rank ${requiredRank}.`;
+      return { kind: "prereq", text: `Requires ${targetAA ? targetAA.name : "prerequisite"} rank ${requiredRank}.` };
     }
   }
   return null;
@@ -455,7 +459,7 @@ export function reconcilePurchaseOrderCounts() {
 // Full reason a rank can't be purchased right now, including affordability.
 export function getBlockReason(catKey, idx) {
   const structural = structuralLockReason(catKey, idx);
-  if (structural) return structural;
+  if (structural) return structural.text;
   const aa = getList(catKey)[idx];
   const rank = effectiveRank(catKey, idx);
   const nextCost = costNum(aa.costs[rank]);

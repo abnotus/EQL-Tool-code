@@ -334,9 +334,28 @@ main {
   filter: grayscale(0.7);
 }
 
+/* Locked specifically by a missing prerequisite AA (as opposed to a level
+   gate) gets a lighter grayscale than plain .locked so the REQ badge's amber
+   still reads - a level gate is self-evidently solved by playing, but a
+   prereq gate means there's a specific other AA to go buy, worth standing out. */
+.node.locked-prereq {
+  filter: grayscale(0.3);
+  border-color: rgba(224,168,58,0.5);
+}
+
 .node.invalidated {
   border-color: #e08b78;
   box-shadow: 0 0 0 2px rgba(224,139,120,0.35), 0 0 14px rgba(224,139,120,0.3);
+}
+
+.node .costtag.prereq-tag {
+  top: auto;
+  bottom: -8px;
+  left: -8px;
+  right: auto;
+  border-color: #e0a83a;
+  color: #e0a83a;
+  font-weight: 700;
 }
 
 .node .costtag.invalid-tag {

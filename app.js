@@ -637,17 +637,17 @@ return attempt.malformed
 function structuralLockReason(catKey, idx) {
 const aa = getList(catKey)[idx];
 const levelReq = parseInt(aa.levelReq, 10) || 1;
-if (state.charLevel < levelReq) return `Requires character level ${levelReq}.`;
+if (state.charLevel < levelReq) return { kind: "level", text: `Requires character level ${levelReq}.` };
 if (aa.prereq) {
 const attempt = tryResolvePrereq(aa.prereq, catKey);
-if (!attempt.ok) return unresolvedPrereqMessage(aa.prereq, attempt);
+if (!attempt.ok) return { kind: "prereq", text: unresolvedPrereqMessage(aa.prereq, attempt) };
 const resolved = attempt.resolved;
 const sourceRank = effectiveRank(catKey, idx) + 1;
 const requiredRank = resolved.forRank(sourceRank);
 const targetRank = effectiveRank(resolved.category, resolved.idx);
 if (targetRank < requiredRank) {
 const targetAA = getList(resolved.category)[resolved.idx];
-return `Requires ${targetAA ? targetAA.name : "prerequisite"} rank ${requiredRank}.`;
+return { kind: "prereq", text: `Requires ${targetAA ? targetAA.name : "prerequisite"} rank ${requiredRank}.` };
 }
 }
 return null;
@@ -753,7 +753,7 @@ return repaired;
 }
 function getBlockReason(catKey, idx) {
 const structural = structuralLockReason(catKey, idx);
-if (structural) return structural;
+if (structural) return structural.text;
 const aa = getList(catKey)[idx];
 const rank = effectiveRank(catKey, idx);
 const nextCost = costNum(aa.costs[rank]);
@@ -1045,11 +1045,12 @@ node.dataset.idx = String(idx);
 if (aa.auto && !autoBelowLevel) node.classList.add("auto");
 else if (!aa.auto && rank >= aa.ranks) node.classList.add("maxed");
 if (locked) node.classList.add("locked");
+if (lockReason && lockReason.kind === "prereq") node.classList.add("locked-prereq");
 if (invalidReason) node.classList.add("invalidated");
 if (searching) node.classList.add(aaMatchesQuery(aa, query) ? "search-match" : "search-dim");
 if (invalidReason) node.title = invalidReason;
 else if (autoBelowLevel) node.title = `Automatically granted at level ${aa.levelReq} — no points needed.`;
-else if (lockReason) node.title = lockReason;
+else if (lockReason) node.title = lockReason.text;
 else if (aa.auto) node.title = "Automatically granted — no AA points needed.";
 if (state.selectedNode && state.selectedNode.category === catKey && state.selectedNode.idx === idx) {
 node.classList.add("selected");
@@ -1075,6 +1076,12 @@ const tag = document.createElement("div");
 tag.className = "costtag";
 tag.textContent = aa.costs[rank];
 node.appendChild(tag);
+}
+if (lockReason && lockReason.kind === "prereq") {
+const req = document.createElement("div");
+req.className = "costtag prereq-tag";
+req.textContent = "REQ";
+node.appendChild(req);
 }
 if (invalidReason) {
 const warn = document.createElement("div");

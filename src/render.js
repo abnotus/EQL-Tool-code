@@ -125,11 +125,12 @@ export function renderTree(catKey) {
     if (aa.auto && !autoBelowLevel) node.classList.add("auto");
     else if (!aa.auto && rank >= aa.ranks) node.classList.add("maxed");
     if (locked) node.classList.add("locked");
+    if (lockReason && lockReason.kind === "prereq") node.classList.add("locked-prereq");
     if (invalidReason) node.classList.add("invalidated");
     if (searching) node.classList.add(aaMatchesQuery(aa, query) ? "search-match" : "search-dim");
     if (invalidReason) node.title = invalidReason;
     else if (autoBelowLevel) node.title = `Automatically granted at level ${aa.levelReq} — no points needed.`;
-    else if (lockReason) node.title = lockReason;
+    else if (lockReason) node.title = lockReason.text;
     else if (aa.auto) node.title = "Automatically granted — no AA points needed.";
     if (state.selectedNode && state.selectedNode.category === catKey && state.selectedNode.idx === idx) {
       node.classList.add("selected");
@@ -156,6 +157,12 @@ export function renderTree(catKey) {
       tag.className = "costtag";
       tag.textContent = aa.costs[rank];
       node.appendChild(tag);
+    }
+    if (lockReason && lockReason.kind === "prereq") {
+      const req = document.createElement("div");
+      req.className = "costtag prereq-tag";
+      req.textContent = "REQ";
+      node.appendChild(req);
     }
     if (invalidReason) {
       const warn = document.createElement("div");
