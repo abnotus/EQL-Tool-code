@@ -1173,12 +1173,20 @@ function applyAttempt(result) {
 if (result.message) showToast(result.message);
 if (result.changed) renderAll();
 }
+function catKeyForBrowseLabel(catLabel) {
+if (catLabel === "General") return "general";
+if (catLabel === "Archetype") return "archetype";
+if (catLabel === "Special") return "special";
+const slot = state.selectedClasses.indexOf(catLabel);
+return slot >= 0 ? CLASS_SLOT_KEYS[slot] : null;
+}
 function renderBrowse() {
 const q = state.browseSearch.trim().toLowerCase();
 const filter = state.browseFilter;
 const items = [];
 function pushList(catLabel, list) {
-list.forEach((aa) => items.push({ cat: catLabel, aa }));
+const catKey = catKeyForBrowseLabel(catLabel);
+list.forEach((aa, idx) => items.push({ cat: catLabel, aa, catKey, idx }));
 }
 if (filter === "all" || filter === "general") pushList("General", AA_DATA.general);
 if (filter === "all" || filter === "archetype") pushList("Archetype", AA_DATA.archetype);
@@ -1190,12 +1198,20 @@ pushList(filter, AA_DATA.classes[filter] || []);
 }
 const filtered = q ? items.filter(({ aa }) => aaMatchesQuery(aa, q)) : items;
 el.browseGrid.innerHTML = filtered.length
-? filtered.map(({ cat, aa }) => `
+? filtered.map(({ cat, aa, catKey, idx }) => {
+let prereqInfo = "";
+if (aa.prereq) {
+const lockReason = catKey ? structuralLockReason(catKey, idx) : null;
+const warn = !!(lockReason && lockReason.kind === "prereq");
+prereqInfo = ` &middot; <span class="prereq-info${warn ? " warn" : ""}">Requires: ${escapeHtml(aa.prereq)}</span>`;
+}
+return `
       <div class="browse-card">
         <div class="top"><span class="name">${escapeHtml(aa.name)}${aa.auto ? ' <span class="auto-badge">(AUTO)</span>' : ""}</span><span class="cat">${escapeHtml(cat)}</span></div>
         <div class="desc">${escapeHtml(aa.description)}</div>
-        <div class="info">Ranks: ${aa.ranks} &middot; Cost/rank: ${aa.costs.map(escapeHtml).join(" / ")} &middot; Level ${escapeHtml(aa.levelReq)}+${aa.prereq ? " &middot; Requires: " + escapeHtml(aa.prereq) : ""}</div>
-      </div>`).join("")
+        <div class="info">Ranks: ${aa.ranks} &middot; Cost/rank: ${aa.costs.map(escapeHtml).join(" / ")} &middot; Level ${escapeHtml(aa.levelReq)}+${prereqInfo}</div>
+      </div>`;
+}).join("")
 : '<div class="empty">No AAs match your search.</div>';
 }
 function renderSummary() {

@@ -1542,13 +1542,28 @@ function applyAttempt(result) {
   if (result.changed) renderAll();
 }
 
+// Browse lists every class regardless of which 3 are currently selected, but
+// structuralLockReason (and everything under it) only knows how to answer
+// "is this prereq met" for a category with a real catKey - general/archetype/
+// special always have one, but a class only does while it's actually sitting
+// in one of the 3 slots. For any other class, catKey is null and the prereq
+// line falls back to the old plain-text rendering rather than guessing.
+function catKeyForBrowseLabel(catLabel) {
+  if (catLabel === "General") return "general";
+  if (catLabel === "Archetype") return "archetype";
+  if (catLabel === "Special") return "special";
+  const slot = state.selectedClasses.indexOf(catLabel);
+  return slot >= 0 ? CLASS_SLOT_KEYS[slot] : null;
+}
+
 function renderBrowse() {
   const q = state.browseSearch.trim().toLowerCase();
   const filter = state.browseFilter;
   const items = [];
 
   function pushList(catLabel, list) {
-    list.forEach((aa) => items.push({ cat: catLabel, aa }));
+    const catKey = catKeyForBrowseLabel(catLabel);
+    list.forEach((aa, idx) => items.push({ cat: catLabel, aa, catKey, idx }));
   }
 
   if (filter === "all" || filter === "general") pushList("General", AA_DATA.general);
@@ -1563,12 +1578,24 @@ function renderBrowse() {
   const filtered = q ? items.filter(({ aa }) => aaMatchesQuery(aa, q)) : items;
 
   el.browseGrid.innerHTML = filtered.length
-    ? filtered.map(({ cat, aa }) => `
+    ? filtered.map(({ cat, aa, catKey, idx }) => {
+        let prereqInfo = "";
+        if (aa.prereq) {
+          // Only "requires an AA you haven't reached yet" should read as a
+          // warning here - a level gate isn't a prerequisite, so it's left
+          // out of this specific check (structuralLockReason still folds
+          // both together, but kind lets this call out the prereq case only).
+          const lockReason = catKey ? structuralLockReason(catKey, idx) : null;
+          const warn = !!(lockReason && lockReason.kind === "prereq");
+          prereqInfo = ` &middot; <span class="prereq-info${warn ? " warn" : ""}">Requires: ${escapeHtml(aa.prereq)}</span>`;
+        }
+        return `
       <div class="browse-card">
         <div class="top"><span class="name">${escapeHtml(aa.name)}${aa.auto ? ' <span class="auto-badge">(AUTO)</span>' : ""}</span><span class="cat">${escapeHtml(cat)}</span></div>
         <div class="desc">${escapeHtml(aa.description)}</div>
-        <div class="info">Ranks: ${aa.ranks} &middot; Cost/rank: ${aa.costs.map(escapeHtml).join(" / ")} &middot; Level ${escapeHtml(aa.levelReq)}+${aa.prereq ? " &middot; Requires: " + escapeHtml(aa.prereq) : ""}</div>
-      </div>`).join("")
+        <div class="info">Ranks: ${aa.ranks} &middot; Cost/rank: ${aa.costs.map(escapeHtml).join(" / ")} &middot; Level ${escapeHtml(aa.levelReq)}+${prereqInfo}</div>
+      </div>`;
+      }).join("")
     : '<div class="empty">No AAs match your search.</div>';
 }
 

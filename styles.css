@@ -648,6 +648,11 @@ main {
   color: var(--text-faint);
 }
 
+.browse-card .info .prereq-info.warn {
+  color: #e08b78;
+  font-weight: 600;
+}
+
 /* ---------- Summary ---------- */
 #summaryWrap {
   flex: 1;
