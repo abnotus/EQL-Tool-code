@@ -722,9 +722,12 @@ main {
 
 /* Currently out of order relative to its own prerequisite (the ⚠ case) - a
    lighter dim than .inactive's, since this is a fixable ordering issue, not
-   "the class isn't even in your build" - inactive still wins if a row is
-   somehow both, since that's the more fundamental reason to dim it. */
-.progression-row.prereq-warn-row { opacity: 0.75; }
+   "the class isn't even in your build". Applied per-child rather than to the
+   row itself so the ⚠ - the one thing that should stay legible - isn't
+   flattened along with everything else by the parent's own opacity.
+   inactive still wins if a row is somehow both, since that's the more
+   fundamental reason to dim it. */
+.progression-row.prereq-warn-row > *:not(.step-warn) { opacity: 0.6; }
 
 .progression-row.inactive.prereq-warn-row { opacity: 0.45; }
 
