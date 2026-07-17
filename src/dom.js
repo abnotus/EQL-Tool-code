@@ -53,4 +53,10 @@ export function cacheDom() {
   el.changelogModal = document.getElementById("changelogModal");
   el.changelogContent = document.getElementById("changelogContent");
   el.closeChangelogBtn = document.getElementById("closeChangelogBtn");
+  el.buildsBtn = document.getElementById("buildsBtn");
+  el.buildsModal = document.getElementById("buildsModal");
+  el.buildSaveName = document.getElementById("buildSaveName");
+  el.buildSaveBtn = document.getElementById("buildSaveBtn");
+  el.buildsList = document.getElementById("buildsList");
+  el.closeBuildsBtn = document.getElementById("closeBuildsBtn");
 }

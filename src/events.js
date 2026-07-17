@@ -3,9 +3,11 @@
 import { state, CLASS_SLOT_KEYS, DISCLAIMER_DISMISSED_KEY, MAX_TOTAL_POINTS, saveLocal } from "./state.js";
 import { el } from "./dom.js";
 import { costNum, clearClassData, clearLastMutation } from "./logic.js";
+import { clearActiveBuild } from "./builds.js";
 import {
   renderAll, showToast, populateClassSelects, renderTree, renderBrowse, undoLast,
-  openChangelogModal, closeChangelogModal, wireProgressionDropZone
+  openChangelogModal, closeChangelogModal, wireProgressionDropZone,
+  openBuildsModal, closeBuildsModal, handleBuildSave
 } from "./render.js";
 import {
   openExportModal, copyExportText, copyShareLink, saveExportAsTxt, closeExportModal,
@@ -83,11 +85,20 @@ export function wireEvents() {
     if (!el.exportModal.classList.contains("hidden")) closeExportModal();
     if (!el.importModal.classList.contains("hidden")) closeImportModal();
     if (!el.changelogModal.classList.contains("hidden")) closeChangelogModal();
+    if (!el.buildsModal.classList.contains("hidden")) closeBuildsModal();
   });
 
   el.versionTag.addEventListener("click", openChangelogModal);
   el.closeChangelogBtn.addEventListener("click", closeChangelogModal);
   el.changelogModal.addEventListener("click", (e) => { if (e.target === el.changelogModal) closeChangelogModal(); });
+
+  el.buildsBtn.addEventListener("click", openBuildsModal);
+  el.closeBuildsBtn.addEventListener("click", closeBuildsModal);
+  el.buildsModal.addEventListener("click", (e) => { if (e.target === el.buildsModal) closeBuildsModal(); });
+  el.buildSaveBtn.addEventListener("click", handleBuildSave);
+  el.buildSaveName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleBuildSave();
+  });
 
   el.importBtn.addEventListener("click", openImportModal);
   el.loadImportFileBtn.addEventListener("click", () => el.importFile.click());
@@ -112,6 +123,7 @@ export function wireEvents() {
     state.purchaseOrder = [];
     state.selectedNode = null;
     clearLastMutation();
+    clearActiveBuild();
     saveLocal();
     renderAll();
     showToast("Build reset");

@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>EverQuest Legends - AA Calculator</title>
-<link rel="stylesheet" href="styles.css?v=319b12ba" />
+<link rel="stylesheet" href="styles.css?v=81ca269f" />
 </head>
 <body>
 
@@ -44,6 +44,7 @@
   <div class="topbar-actions">
     <a class="btn" href="https://eqlwiki.com/Alternate_Advancement" target="_blank" rel="noopener">Source: eqlwiki</a>
     <button class="btn toggle" id="browseToggle">Browse All AAs</button>
+    <button class="btn" id="buildsBtn">Builds &#9662;</button>
     <button class="btn primary" id="exportBtn">Export</button>
     <button class="btn" id="importBtn">Import</button>
     <input type="file" id="importFile" accept=".txt" class="hidden" />
@@ -110,6 +111,21 @@
   </div>
 </div>
 
+<div id="buildsModal" class="modal-overlay hidden">
+  <div class="modal">
+    <h2>Builds</h2>
+    <p class="modal-hint">Save named snapshots of your current build to switch between them later &mdash; stored locally in this browser, not synced anywhere.</p>
+    <div class="builds-save-row">
+      <input type="text" id="buildSaveName" placeholder="Name this build..." spellcheck="false" maxlength="60" />
+      <button class="btn primary" id="buildSaveBtn">Save Current As</button>
+    </div>
+    <div id="buildsList" class="builds-list"></div>
+    <div class="modal-actions">
+      <button class="btn" id="closeBuildsBtn">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="exportModal" class="modal-overlay hidden">
   <div class="modal">
     <h2>Export Build</h2>
@@ -143,7 +159,7 @@
   </div>
 </div>
 
-<script src="data.js?v=319b12ba"></script>
-<script src="app.js?v=319b12ba"></script>
+<script src="data.js?v=81ca269f"></script>
+<script src="app.js?v=81ca269f"></script>
 </body>
 </html>

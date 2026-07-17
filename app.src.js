@@ -1056,6 +1056,26 @@ function reconcilePurchaseOrderCounts() {
   return repaired;
 }
 
+// Builds a " (...)" suffix summarizing anything applyLoaded dropped and/or
+// reconcilePurchaseOrderCounts repaired — "" if neither applies. Shared
+// wording for the single-action load paths (share link, text import, loading
+// a named build slot); the startup path in main.js assembles its own
+// multi-item notice instead, since it can also be reporting on invalidated
+// picks at the same time. Lives here rather than in exportImport.js (which
+// first needed this) so builds.js can use it too without exportImport.js and
+// builds.js importing each other.
+function loadIssuesSuffix(result, repaired) {
+  const parts = [];
+  if (result.droppedRanks) {
+    const n = result.droppedRanks;
+    parts.push(`${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
+  }
+  if (repaired) {
+    parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
+}
+
 // Full reason a rank can't be purchased right now, including affordability.
 function getBlockReason(catKey, idx) {
   const structural = structuralLockReason(catKey, idx);
@@ -1313,6 +1333,147 @@ function computeProgressionSteps(order = state.purchaseOrder) {
   });
 }
 
+// Named build slots: save/load/rename/delete snapshots of the current build in
+// localStorage, independent of state.js's own always-autosaving STORAGE_KEY —
+// that key keeps holding "whatever you're currently editing", exactly as it
+// did before this existed. A named slot is an explicit snapshot you take of
+// that; loading one just overwrites the current working state with it, which
+// then goes on autosaving under STORAGE_KEY as normal. No migration needed:
+// an existing single-build save is untouched and simply has no active slot.
+
+const BUILDS_INDEX_KEY = "eql_aa_builds_index_v1";
+const BUILD_KEY_PREFIX = "eql_aa_build_";
+// Which saved slot (if any) the current working state was last loaded from or
+// saved as — purely for UI orientation (highlighting it in the list, showing
+// its name near the Builds button). Not part of any build's own payload, and
+// never trusted for anything beyond display: loading/saving always resolves
+// by id against the index, not the other way around.
+const ACTIVE_BUILD_KEY = "eql_aa_active_build_id";
+
+function loadIndex() {
+  try {
+    const raw = localStorage.getItem(BUILDS_INDEX_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveIndex(index) {
+  try {
+    localStorage.setItem(BUILDS_INDEX_KEY, JSON.stringify(index));
+  } catch (e) { /* storage unavailable/full - the slot data write already failed first if so */ }
+}
+
+function genId() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Most-recently-updated first — the one you're most likely to want is at the top.
+function listBuilds() {
+  return loadIndex().slice().sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function getActiveBuildId() {
+  try {
+    return localStorage.getItem(ACTIVE_BUILD_KEY) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function setActiveBuildId(id) {
+  try {
+    if (id) localStorage.setItem(ACTIVE_BUILD_KEY, id);
+    else localStorage.removeItem(ACTIVE_BUILD_KEY);
+  } catch (e) { /* ignore */ }
+}
+
+// Called whenever the current working state gets replaced by something other
+// than loadBuild — an import, a share link, Reset Build — so a subsequent
+// save can't mistake unrelated content for an update to whatever slot used
+// to be active.
+function clearActiveBuild() {
+  setActiveBuildId(null);
+}
+
+function buildPayload() {
+  return {
+    v: SAVE_FORMAT_VERSION,
+    selectedClasses: state.selectedClasses,
+    charLevel: state.charLevel,
+    totalPoints: state.totalPoints,
+    ranks: serializeRanks(state.ranks),
+    purchaseOrder: serializePurchaseOrder(state.purchaseOrder)
+  };
+}
+
+// Snapshots the current build into a named slot — a new one, or an existing
+// one if id is given (the caller's "overwrite this slot" path). Returns the
+// slot's id, or null if localStorage rejected the write (full/unavailable),
+// in which case nothing was changed.
+function saveBuildAs(name, id = null) {
+  const targetId = id || genId();
+  try {
+    localStorage.setItem(BUILD_KEY_PREFIX + targetId, JSON.stringify(buildPayload()));
+  } catch (e) {
+    return null;
+  }
+  const index = loadIndex();
+  const existing = index.find((b) => b.id === targetId);
+  const updatedAt = Date.now();
+  if (existing) {
+    existing.name = name;
+    existing.updatedAt = updatedAt;
+  } else {
+    index.push({ id: targetId, name, updatedAt });
+  }
+  saveIndex(index);
+  setActiveBuildId(targetId);
+  return targetId;
+}
+
+// Replaces the current working state with a saved slot's contents — same
+// mechanism as loadLocal/applyLoaded on boot, or a text import. Returns
+// { droppedRanks, repaired } (see loadIssuesSuffix in logic.js) so the UI can
+// surface the same kind of notice an on-load drop already gets, or null if
+// the slot doesn't exist / storage failed, in which case nothing changed.
+function loadBuild(id) {
+  let parsed;
+  try {
+    const raw = localStorage.getItem(BUILD_KEY_PREFIX + id);
+    if (!raw) return null;
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+  const result = applyLoaded(parsed);
+  state.selectedNode = null;
+  clearLastMutation();
+  const repaired = reconcilePurchaseOrderCounts();
+  setActiveBuildId(id);
+  saveLocal();
+  return { droppedRanks: result.droppedRanks, repaired };
+}
+
+function renameBuild(id, name) {
+  const index = loadIndex();
+  const entry = index.find((b) => b.id === id);
+  if (!entry) return false;
+  entry.name = name;
+  saveIndex(index);
+  return true;
+}
+
+function deleteBuild(id) {
+  saveIndex(loadIndex().filter((b) => b.id !== id));
+  try {
+    localStorage.removeItem(BUILD_KEY_PREFIX + id);
+  } catch (e) { /* ignore */ }
+  if (getActiveBuildId() === id) setActiveBuildId(null);
+}
+
 // Cached DOM element references, populated once on init.
 
 const el = {};
@@ -1368,6 +1529,12 @@ function cacheDom() {
   el.changelogModal = document.getElementById("changelogModal");
   el.changelogContent = document.getElementById("changelogContent");
   el.closeChangelogBtn = document.getElementById("closeChangelogBtn");
+  el.buildsBtn = document.getElementById("buildsBtn");
+  el.buildsModal = document.getElementById("buildsModal");
+  el.buildSaveName = document.getElementById("buildSaveName");
+  el.buildSaveBtn = document.getElementById("buildSaveBtn");
+  el.buildsList = document.getElementById("buildsList");
+  el.closeBuildsBtn = document.getElementById("closeBuildsBtn");
 }
 
 // All DOM rendering. Reads from `state` and the logic layer, writes to `el.*`.
@@ -1406,6 +1573,9 @@ function renderTopbar() {
   el.remainingValue.textContent = `(${remaining} remaining)`;
   el.remainingValue.classList.toggle("over", remaining < 0);
   el.browseToggle.classList.toggle("active", state.activeView === "browse");
+  const activeId = getActiveBuildId();
+  const activeBuild = activeId ? listBuilds().find((b) => b.id === activeId) : null;
+  el.buildsBtn.textContent = activeBuild ? `Builds: ${activeBuild.name} ▾` : "Builds ▾";
 }
 
 function populateClassSelects() {
@@ -2078,6 +2248,83 @@ function closeChangelogModal() {
   el.changelogModal.classList.add("hidden");
 }
 
+function renderBuildsList() {
+  const builds = listBuilds();
+  const activeId = getActiveBuildId();
+  el.buildsList.innerHTML = builds.length
+    ? builds.map((b) => `
+      <div class="build-row${b.id === activeId ? " active" : ""}">
+        <div class="build-info">
+          <span class="build-name">${escapeHtml(b.name)}</span>
+          <span class="build-meta">${escapeHtml(new Date(b.updatedAt).toLocaleString())}</span>
+        </div>
+        <div class="build-actions">
+          <button class="btn" data-action="load" data-id="${b.id}">Load</button>
+          <button class="btn" data-action="rename" data-id="${b.id}">Rename</button>
+          <button class="btn danger" data-action="delete" data-id="${b.id}">Delete</button>
+        </div>
+      </div>`).join("")
+    : '<div class="empty">No saved builds yet — save your current build below to get started.</div>';
+
+  Array.from(el.buildsList.querySelectorAll("[data-action]")).forEach((btn) => {
+    const id = btn.getAttribute("data-id");
+    const action = btn.getAttribute("data-action");
+    btn.addEventListener("click", () => {
+      if (action === "load") {
+        if (spentPoints() > 0 && !confirm("Loading this build will replace your current build. Continue?")) return;
+        const result = loadBuild(id);
+        if (!result) { showToast("Couldn't load that build — it may have been removed."); return; }
+        closeBuildsModal();
+        renderAll();
+        showToast(`Build loaded${loadIssuesSuffix({ droppedRanks: result.droppedRanks }, result.repaired)}`);
+      } else if (action === "rename") {
+        const build = builds.find((b) => b.id === id);
+        const name = prompt("Rename build:", build ? build.name : "");
+        if (name === null) return;
+        const trimmed = name.trim();
+        if (!trimmed) { showToast("Name can't be empty."); return; }
+        renameBuild(id, trimmed);
+        renderBuildsList();
+        renderTopbar();
+      } else if (action === "delete") {
+        const build = builds.find((b) => b.id === id);
+        if (!confirm(`Delete "${build ? build.name : "this build"}"? This can't be undone.`)) return;
+        deleteBuild(id);
+        renderBuildsList();
+        renderTopbar();
+      }
+    });
+  });
+}
+
+function openBuildsModal() {
+  el.buildSaveName.value = "";
+  renderBuildsList();
+  el.buildsModal.classList.remove("hidden");
+  el.buildSaveName.focus();
+}
+
+function closeBuildsModal() {
+  el.buildsModal.classList.add("hidden");
+}
+
+// Snapshots the current build under whatever name is in the input — a new
+// slot, or an overwrite (after confirming) if the name matches an existing
+// one. Exported for events.js to wire to both the Save button and an Enter
+// keypress in the name field.
+function handleBuildSave() {
+  const name = el.buildSaveName.value.trim();
+  if (!name) { showToast("Enter a name for this build."); return; }
+  const existing = listBuilds().find((b) => b.name === name);
+  if (existing && !confirm(`A build named "${name}" already exists. Overwrite it?`)) return;
+  const id = saveBuildAs(name, existing ? existing.id : null);
+  if (!id) { showToast("Couldn't save — local storage may be full or unavailable."); return; }
+  el.buildSaveName.value = "";
+  renderBuildsList();
+  renderTopbar();
+  showToast(`Saved "${name}"`);
+}
+
 // Build export/import: the text format, the share-code encoding, share links, and modal wiring.
 
 // Wire-format version for BUILD_CODE specifically (share links, export
@@ -2241,23 +2488,6 @@ async function buildShareUrl() {
   return url.toString();
 }
 
-// Builds a " (...)" suffix summarizing anything applyLoaded dropped and/or
-// reconcilePurchaseOrderCounts repaired — "" if neither applies. Shared
-// wording for the single-action load paths (share link, text import); the
-// startup path in main.js assembles its own multi-item notice instead, since
-// it can also be reporting on invalidated picks at the same time.
-function loadIssuesSuffix(result, repaired) {
-  const parts = [];
-  if (result.droppedRanks) {
-    const n = result.droppedRanks;
-    parts.push(`${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
-  }
-  if (repaired) {
-    parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
-  }
-  return parts.length ? ` (${parts.join("; ")})` : "";
-}
-
 // Called once on startup. If the URL has a ?build= param, offers to load it — with
 // a confirmation if it would clobber an existing non-empty build — then strips the
 // param from the address bar either way so a refresh doesn't re-prompt. Returns
@@ -2292,6 +2522,7 @@ async function applySharedBuildFromUrl(localLoadResult) {
       const result = applyLoaded(json);
       state.selectedNode = null;
       clearLastMutation();
+      clearActiveBuild();
       const repaired = reconcilePurchaseOrderCounts();
       saveLocal();
       notice = `Loaded shared build from link${loadIssuesSuffix(result, repaired)}`;
@@ -2424,6 +2655,7 @@ async function importBuildFromText(text) {
     const result = applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();
+    clearActiveBuild();
     const repaired = reconcilePurchaseOrderCounts();
     saveLocal();
     renderAll();
@@ -2524,11 +2756,20 @@ function wireEvents() {
     if (!el.exportModal.classList.contains("hidden")) closeExportModal();
     if (!el.importModal.classList.contains("hidden")) closeImportModal();
     if (!el.changelogModal.classList.contains("hidden")) closeChangelogModal();
+    if (!el.buildsModal.classList.contains("hidden")) closeBuildsModal();
   });
 
   el.versionTag.addEventListener("click", openChangelogModal);
   el.closeChangelogBtn.addEventListener("click", closeChangelogModal);
   el.changelogModal.addEventListener("click", (e) => { if (e.target === el.changelogModal) closeChangelogModal(); });
+
+  el.buildsBtn.addEventListener("click", openBuildsModal);
+  el.closeBuildsBtn.addEventListener("click", closeBuildsModal);
+  el.buildsModal.addEventListener("click", (e) => { if (e.target === el.buildsModal) closeBuildsModal(); });
+  el.buildSaveBtn.addEventListener("click", handleBuildSave);
+  el.buildSaveName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleBuildSave();
+  });
 
   el.importBtn.addEventListener("click", openImportModal);
   el.loadImportFileBtn.addEventListener("click", () => el.importFile.click());
@@ -2553,6 +2794,7 @@ function wireEvents() {
     state.purchaseOrder = [];
     state.selectedNode = null;
     clearLastMutation();
+    clearActiveBuild();
     saveLocal();
     renderAll();
     showToast("Build reset");

@@ -947,6 +947,79 @@ main {
   font-size: 11px;
 }
 
+/* ---------- Builds modal ---------- */
+.builds-save-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.builds-save-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.builds-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.build-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+}
+
+.build-row.active { border-color: var(--accent-bright); box-shadow: 0 0 0 1px rgba(217,76,76,0.3); }
+
+.build-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.build-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-row.active .build-name::after {
+  content: " (current)";
+  font-weight: 400;
+  color: var(--accent-bright);
+  font-size: 11px;
+}
+
+.build-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.build-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.build-actions .btn {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
 /* ---------- misc ---------- */
 .hidden { display: none !important; }
 
@@ -1120,6 +1193,15 @@ main {
   }
 
   .modal-actions {
+    flex-wrap: wrap;
+  }
+
+  .build-row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .builds-save-row {
     flex-wrap: wrap;
   }
 

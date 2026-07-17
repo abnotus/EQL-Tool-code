@@ -760,6 +760,17 @@ state.purchaseOrder.push({ scope, className, idx });
 });
 return repaired;
 }
+function loadIssuesSuffix(result, repaired) {
+const parts = [];
+if (result.droppedRanks) {
+const n = result.droppedRanks;
+parts.push(`${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
+}
+if (repaired) {
+parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
+}
+return parts.length ? ` (${parts.join("; ")})` : "";
+}
 function getBlockReason(catKey, idx) {
 const structural = structuralLockReason(catKey, idx);
 if (structural) return structural.text;
@@ -927,6 +938,107 @@ const name = aa ? aa.name : "(unknown AA)";
 return { index: i, aa, idx: entry.idx, category, active, stepRank, stepCost, cumulative, prereqWarn, label, name, isLast };
 });
 }
+const BUILDS_INDEX_KEY = "eql_aa_builds_index_v1";
+const BUILD_KEY_PREFIX = "eql_aa_build_";
+const ACTIVE_BUILD_KEY = "eql_aa_active_build_id";
+function loadIndex() {
+try {
+const raw = localStorage.getItem(BUILDS_INDEX_KEY);
+const parsed = raw ? JSON.parse(raw) : [];
+return Array.isArray(parsed) ? parsed : [];
+} catch (e) {
+return [];
+}
+}
+function saveIndex(index) {
+try {
+localStorage.setItem(BUILDS_INDEX_KEY, JSON.stringify(index));
+} catch (e) { /* storage unavailable/full - the slot data write already failed first if so */ }
+}
+function genId() {
+return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+function listBuilds() {
+return loadIndex().slice().sort((a, b) => b.updatedAt - a.updatedAt);
+}
+function getActiveBuildId() {
+try {
+return localStorage.getItem(ACTIVE_BUILD_KEY) || null;
+} catch (e) {
+return null;
+}
+}
+function setActiveBuildId(id) {
+try {
+if (id) localStorage.setItem(ACTIVE_BUILD_KEY, id);
+else localStorage.removeItem(ACTIVE_BUILD_KEY);
+} catch (e) { /* ignore */ }
+}
+function clearActiveBuild() {
+setActiveBuildId(null);
+}
+function buildPayload() {
+return {
+v: SAVE_FORMAT_VERSION,
+selectedClasses: state.selectedClasses,
+charLevel: state.charLevel,
+totalPoints: state.totalPoints,
+ranks: serializeRanks(state.ranks),
+purchaseOrder: serializePurchaseOrder(state.purchaseOrder)
+};
+}
+function saveBuildAs(name, id = null) {
+const targetId = id || genId();
+try {
+localStorage.setItem(BUILD_KEY_PREFIX + targetId, JSON.stringify(buildPayload()));
+} catch (e) {
+return null;
+}
+const index = loadIndex();
+const existing = index.find((b) => b.id === targetId);
+const updatedAt = Date.now();
+if (existing) {
+existing.name = name;
+existing.updatedAt = updatedAt;
+} else {
+index.push({ id: targetId, name, updatedAt });
+}
+saveIndex(index);
+setActiveBuildId(targetId);
+return targetId;
+}
+function loadBuild(id) {
+let parsed;
+try {
+const raw = localStorage.getItem(BUILD_KEY_PREFIX + id);
+if (!raw) return null;
+parsed = JSON.parse(raw);
+} catch (e) {
+return null;
+}
+const result = applyLoaded(parsed);
+state.selectedNode = null;
+clearLastMutation();
+const repaired = reconcilePurchaseOrderCounts();
+setActiveBuildId(id);
+saveLocal();
+return { droppedRanks: result.droppedRanks, repaired };
+}
+function renameBuild(id, name) {
+const index = loadIndex();
+const entry = index.find((b) => b.id === id);
+if (!entry) return false;
+entry.name = name;
+saveIndex(index);
+return true;
+}
+function deleteBuild(id) {
+saveIndex(loadIndex().filter((b) => b.id !== id));
+try {
+localStorage.removeItem(BUILD_KEY_PREFIX + id);
+} catch (e) { /* ignore */ }
+if (getActiveBuildId() === id) setActiveBuildId(null);
+}
 const el = {};
 function cacheDom() {
 el.classSelects = [
@@ -979,6 +1091,12 @@ el.versionTag = document.getElementById("versionTag");
 el.changelogModal = document.getElementById("changelogModal");
 el.changelogContent = document.getElementById("changelogContent");
 el.closeChangelogBtn = document.getElementById("closeChangelogBtn");
+el.buildsBtn = document.getElementById("buildsBtn");
+el.buildsModal = document.getElementById("buildsModal");
+el.buildSaveName = document.getElementById("buildSaveName");
+el.buildSaveBtn = document.getElementById("buildSaveBtn");
+el.buildsList = document.getElementById("buildsList");
+el.closeBuildsBtn = document.getElementById("closeBuildsBtn");
 }
 function renderAll() {
 renderTopbar();
@@ -1013,6 +1131,9 @@ el.totalDisplayValue.textContent = state.totalPoints;
 el.remainingValue.textContent = `(${remaining} remaining)`;
 el.remainingValue.classList.toggle("over", remaining < 0);
 el.browseToggle.classList.toggle("active", state.activeView === "browse");
+const activeId = getActiveBuildId();
+const activeBuild = activeId ? listBuilds().find((b) => b.id === activeId) : null;
+el.buildsBtn.textContent = activeBuild ? `Builds: ${activeBuild.name} ▾` : "Builds ▾";
 }
 function populateClassSelects() {
 const html = CLASS_LIST.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
@@ -1522,6 +1643,74 @@ try { localStorage.setItem(LAST_SEEN_VERSION_KEY, USER_CHANGELOG[0].version); } 
 function closeChangelogModal() {
 el.changelogModal.classList.add("hidden");
 }
+function renderBuildsList() {
+const builds = listBuilds();
+const activeId = getActiveBuildId();
+el.buildsList.innerHTML = builds.length
+? builds.map((b) => `
+      <div class="build-row${b.id === activeId ? " active" : ""}">
+        <div class="build-info">
+          <span class="build-name">${escapeHtml(b.name)}</span>
+          <span class="build-meta">${escapeHtml(new Date(b.updatedAt).toLocaleString())}</span>
+        </div>
+        <div class="build-actions">
+          <button class="btn" data-action="load" data-id="${b.id}">Load</button>
+          <button class="btn" data-action="rename" data-id="${b.id}">Rename</button>
+          <button class="btn danger" data-action="delete" data-id="${b.id}">Delete</button>
+        </div>
+      </div>`).join("")
+: '<div class="empty">No saved builds yet — save your current build below to get started.</div>';
+Array.from(el.buildsList.querySelectorAll("[data-action]")).forEach((btn) => {
+const id = btn.getAttribute("data-id");
+const action = btn.getAttribute("data-action");
+btn.addEventListener("click", () => {
+if (action === "load") {
+if (spentPoints() > 0 && !confirm("Loading this build will replace your current build. Continue?")) return;
+const result = loadBuild(id);
+if (!result) { showToast("Couldn't load that build — it may have been removed."); return; }
+closeBuildsModal();
+renderAll();
+showToast(`Build loaded${loadIssuesSuffix({ droppedRanks: result.droppedRanks }, result.repaired)}`);
+} else if (action === "rename") {
+const build = builds.find((b) => b.id === id);
+const name = prompt("Rename build:", build ? build.name : "");
+if (name === null) return;
+const trimmed = name.trim();
+if (!trimmed) { showToast("Name can't be empty."); return; }
+renameBuild(id, trimmed);
+renderBuildsList();
+renderTopbar();
+} else if (action === "delete") {
+const build = builds.find((b) => b.id === id);
+if (!confirm(`Delete "${build ? build.name : "this build"}"? This can't be undone.`)) return;
+deleteBuild(id);
+renderBuildsList();
+renderTopbar();
+}
+});
+});
+}
+function openBuildsModal() {
+el.buildSaveName.value = "";
+renderBuildsList();
+el.buildsModal.classList.remove("hidden");
+el.buildSaveName.focus();
+}
+function closeBuildsModal() {
+el.buildsModal.classList.add("hidden");
+}
+function handleBuildSave() {
+const name = el.buildSaveName.value.trim();
+if (!name) { showToast("Enter a name for this build."); return; }
+const existing = listBuilds().find((b) => b.name === name);
+if (existing && !confirm(`A build named "${name}" already exists. Overwrite it?`)) return;
+const id = saveBuildAs(name, existing ? existing.id : null);
+if (!id) { showToast("Couldn't save — local storage may be full or unavailable."); return; }
+el.buildSaveName.value = "";
+renderBuildsList();
+renderTopbar();
+showToast(`Saved "${name}"`);
+}
 const BUILD_CODE_VERSION = 2;
 function buildCodeObject() {
 const serializedRanks = serializeRanks(state.ranks);
@@ -1630,17 +1819,6 @@ url.hash = "";
 url.searchParams.set("build", toBase64Url(await encodeBuildCode()));
 return url.toString();
 }
-function loadIssuesSuffix(result, repaired) {
-const parts = [];
-if (result.droppedRanks) {
-const n = result.droppedRanks;
-parts.push(`${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
-}
-if (repaired) {
-parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
-}
-return parts.length ? ` (${parts.join("; ")})` : "";
-}
 async function applySharedBuildFromUrl(localLoadResult) {
 const params = new URLSearchParams(window.location.search);
 const raw = params.get("build");
@@ -1660,6 +1838,7 @@ if (proceed) {
 const result = applyLoaded(json);
 state.selectedNode = null;
 clearLastMutation();
+clearActiveBuild();
 const repaired = reconcilePurchaseOrderCounts();
 saveLocal();
 notice = `Loaded shared build from link${loadIssuesSuffix(result, repaired)}`;
@@ -1769,6 +1948,7 @@ const json = await decodeBuildCode(fromBase64Url(code));
 const result = applyLoaded(json);
 state.selectedNode = null;
 clearLastMutation();
+clearActiveBuild();
 const repaired = reconcilePurchaseOrderCounts();
 saveLocal();
 renderAll();
@@ -1854,10 +2034,18 @@ if (e.key !== "Escape") return;
 if (!el.exportModal.classList.contains("hidden")) closeExportModal();
 if (!el.importModal.classList.contains("hidden")) closeImportModal();
 if (!el.changelogModal.classList.contains("hidden")) closeChangelogModal();
+if (!el.buildsModal.classList.contains("hidden")) closeBuildsModal();
 });
 el.versionTag.addEventListener("click", openChangelogModal);
 el.closeChangelogBtn.addEventListener("click", closeChangelogModal);
 el.changelogModal.addEventListener("click", (e) => { if (e.target === el.changelogModal) closeChangelogModal(); });
+el.buildsBtn.addEventListener("click", openBuildsModal);
+el.closeBuildsBtn.addEventListener("click", closeBuildsModal);
+el.buildsModal.addEventListener("click", (e) => { if (e.target === el.buildsModal) closeBuildsModal(); });
+el.buildSaveBtn.addEventListener("click", handleBuildSave);
+el.buildSaveName.addEventListener("keydown", (e) => {
+if (e.key === "Enter") handleBuildSave();
+});
 el.importBtn.addEventListener("click", openImportModal);
 el.loadImportFileBtn.addEventListener("click", () => el.importFile.click());
 el.importFile.addEventListener("change", () => {
@@ -1880,6 +2068,7 @@ state.ranks = { general: {}, archetype: {}, special: {}, classes: {} };
 state.purchaseOrder = [];
 state.selectedNode = null;
 clearLastMutation();
+clearActiveBuild();
 saveLocal();
 renderAll();
 showToast("Build reset");

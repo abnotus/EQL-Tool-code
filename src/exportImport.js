@@ -2,7 +2,8 @@
 
 import { state, AA_CATEGORY_KEYS, applyLoaded, saveLocal, SAVE_FORMAT_VERSION, serializeRanks, serializePurchaseOrder } from "./state.js";
 import { el } from "./dom.js";
-import { getList, effectiveRank, labelFor, spentPoints, computeProgressionSteps, clearLastMutation, reconcilePurchaseOrderCounts } from "./logic.js";
+import { getList, effectiveRank, labelFor, spentPoints, computeProgressionSteps, clearLastMutation, reconcilePurchaseOrderCounts, loadIssuesSuffix } from "./logic.js";
+import { clearActiveBuild } from "./builds.js";
 import { renderAll, showToast } from "./render.js";
 import { idForKey, entryForId } from "./keys.js";
 
@@ -167,23 +168,6 @@ export async function buildShareUrl() {
   return url.toString();
 }
 
-// Builds a " (...)" suffix summarizing anything applyLoaded dropped and/or
-// reconcilePurchaseOrderCounts repaired — "" if neither applies. Shared
-// wording for the single-action load paths (share link, text import); the
-// startup path in main.js assembles its own multi-item notice instead, since
-// it can also be reporting on invalidated picks at the same time.
-function loadIssuesSuffix(result, repaired) {
-  const parts = [];
-  if (result.droppedRanks) {
-    const n = result.droppedRanks;
-    parts.push(`${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
-  }
-  if (repaired) {
-    parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
-  }
-  return parts.length ? ` (${parts.join("; ")})` : "";
-}
-
 // Called once on startup. If the URL has a ?build= param, offers to load it — with
 // a confirmation if it would clobber an existing non-empty build — then strips the
 // param from the address bar either way so a refresh doesn't re-prompt. Returns
@@ -218,6 +202,7 @@ export async function applySharedBuildFromUrl(localLoadResult) {
       const result = applyLoaded(json);
       state.selectedNode = null;
       clearLastMutation();
+      clearActiveBuild();
       const repaired = reconcilePurchaseOrderCounts();
       saveLocal();
       notice = `Loaded shared build from link${loadIssuesSuffix(result, repaired)}`;
@@ -350,6 +335,7 @@ export async function importBuildFromText(text) {
     const result = applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();
+    clearActiveBuild();
     const repaired = reconcilePurchaseOrderCounts();
     saveLocal();
     renderAll();

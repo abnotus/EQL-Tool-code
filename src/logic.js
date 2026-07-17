@@ -456,6 +456,26 @@ export function reconcilePurchaseOrderCounts() {
   return repaired;
 }
 
+// Builds a " (...)" suffix summarizing anything applyLoaded dropped and/or
+// reconcilePurchaseOrderCounts repaired — "" if neither applies. Shared
+// wording for the single-action load paths (share link, text import, loading
+// a named build slot); the startup path in main.js assembles its own
+// multi-item notice instead, since it can also be reporting on invalidated
+// picks at the same time. Lives here rather than in exportImport.js (which
+// first needed this) so builds.js can use it too without exportImport.js and
+// builds.js importing each other.
+export function loadIssuesSuffix(result, repaired) {
+  const parts = [];
+  if (result.droppedRanks) {
+    const n = result.droppedRanks;
+    parts.push(`${n} pick${n === 1 ? "" : "s"} no longer exist${n === 1 ? "s" : ""} in the current data and ${n === 1 ? "was" : "were"} skipped`);
+  }
+  if (repaired) {
+    parts.push(`${repaired} pick${repaired === 1 ? "'s" : "s'"} purchase history was out of sync and ${repaired === 1 ? "was" : "were"} repaired`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
+}
+
 // Full reason a rank can't be purchased right now, including affordability.
 export function getBlockReason(catKey, idx) {
   const structural = structuralLockReason(catKey, idx);

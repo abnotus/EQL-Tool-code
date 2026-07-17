@@ -8,8 +8,9 @@ import {
   getList, effectiveRank, structuralLockReason, resolvePrereqTarget, getBlockReason,
   isDependedOn, attemptIncrement, attemptDecrement, countPicked, computeProgressionSteps,
   costNum, spentPoints, undoLastMutation, canUndo, moveEntry, aaMatchesQuery, countMatches,
-  heldRankInvalidReason, findInvalidatedPicks
+  heldRankInvalidReason, findInvalidatedPicks, loadIssuesSuffix
 } from "./logic.js";
+import { listBuilds, getActiveBuildId, saveBuildAs, loadBuild, renameBuild, deleteBuild } from "./builds.js";
 
 export function renderAll() {
   renderTopbar();
@@ -45,6 +46,9 @@ export function renderTopbar() {
   el.remainingValue.textContent = `(${remaining} remaining)`;
   el.remainingValue.classList.toggle("over", remaining < 0);
   el.browseToggle.classList.toggle("active", state.activeView === "browse");
+  const activeId = getActiveBuildId();
+  const activeBuild = activeId ? listBuilds().find((b) => b.id === activeId) : null;
+  el.buildsBtn.textContent = activeBuild ? `Builds: ${activeBuild.name} ▾` : "Builds ▾";
 }
 
 export function populateClassSelects() {
@@ -715,4 +719,81 @@ export function openChangelogModal() {
 
 export function closeChangelogModal() {
   el.changelogModal.classList.add("hidden");
+}
+
+function renderBuildsList() {
+  const builds = listBuilds();
+  const activeId = getActiveBuildId();
+  el.buildsList.innerHTML = builds.length
+    ? builds.map((b) => `
+      <div class="build-row${b.id === activeId ? " active" : ""}">
+        <div class="build-info">
+          <span class="build-name">${escapeHtml(b.name)}</span>
+          <span class="build-meta">${escapeHtml(new Date(b.updatedAt).toLocaleString())}</span>
+        </div>
+        <div class="build-actions">
+          <button class="btn" data-action="load" data-id="${b.id}">Load</button>
+          <button class="btn" data-action="rename" data-id="${b.id}">Rename</button>
+          <button class="btn danger" data-action="delete" data-id="${b.id}">Delete</button>
+        </div>
+      </div>`).join("")
+    : '<div class="empty">No saved builds yet — save your current build below to get started.</div>';
+
+  Array.from(el.buildsList.querySelectorAll("[data-action]")).forEach((btn) => {
+    const id = btn.getAttribute("data-id");
+    const action = btn.getAttribute("data-action");
+    btn.addEventListener("click", () => {
+      if (action === "load") {
+        if (spentPoints() > 0 && !confirm("Loading this build will replace your current build. Continue?")) return;
+        const result = loadBuild(id);
+        if (!result) { showToast("Couldn't load that build — it may have been removed."); return; }
+        closeBuildsModal();
+        renderAll();
+        showToast(`Build loaded${loadIssuesSuffix({ droppedRanks: result.droppedRanks }, result.repaired)}`);
+      } else if (action === "rename") {
+        const build = builds.find((b) => b.id === id);
+        const name = prompt("Rename build:", build ? build.name : "");
+        if (name === null) return;
+        const trimmed = name.trim();
+        if (!trimmed) { showToast("Name can't be empty."); return; }
+        renameBuild(id, trimmed);
+        renderBuildsList();
+        renderTopbar();
+      } else if (action === "delete") {
+        const build = builds.find((b) => b.id === id);
+        if (!confirm(`Delete "${build ? build.name : "this build"}"? This can't be undone.`)) return;
+        deleteBuild(id);
+        renderBuildsList();
+        renderTopbar();
+      }
+    });
+  });
+}
+
+export function openBuildsModal() {
+  el.buildSaveName.value = "";
+  renderBuildsList();
+  el.buildsModal.classList.remove("hidden");
+  el.buildSaveName.focus();
+}
+
+export function closeBuildsModal() {
+  el.buildsModal.classList.add("hidden");
+}
+
+// Snapshots the current build under whatever name is in the input — a new
+// slot, or an overwrite (after confirming) if the name matches an existing
+// one. Exported for events.js to wire to both the Save button and an Enter
+// keypress in the name field.
+export function handleBuildSave() {
+  const name = el.buildSaveName.value.trim();
+  if (!name) { showToast("Enter a name for this build."); return; }
+  const existing = listBuilds().find((b) => b.name === name);
+  if (existing && !confirm(`A build named "${name}" already exists. Overwrite it?`)) return;
+  const id = saveBuildAs(name, existing ? existing.id : null);
+  if (!id) { showToast("Couldn't save — local storage may be full or unavailable."); return; }
+  el.buildSaveName.value = "";
+  renderBuildsList();
+  renderTopbar();
+  showToast(`Saved "${name}"`);
 }
