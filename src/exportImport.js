@@ -3,7 +3,7 @@
 import { state, AA_CATEGORY_KEYS, applyLoaded, saveLocal, SAVE_FORMAT_VERSION, serializeRanks, serializePurchaseOrder } from "./state.js";
 import { el } from "./dom.js";
 import { getList, effectiveRank, labelFor, spentPoints, computeProgressionSteps, clearLastMutation, reconcilePurchaseOrderCounts, loadIssuesSuffix } from "./logic.js";
-import { clearActiveBuild, activeBuildMatchesCurrent, saveImportedBuild, saveBuildAs } from "./builds.js";
+import { clearActiveBuild, saveImportedBuild, confirmReplaceCurrentBuild, isActiveBuildTheImportedSlot } from "./builds.js";
 import { renderAll, showToast } from "./render.js";
 import { idForKey, entryForId } from "./keys.js";
 
@@ -168,35 +168,6 @@ export async function buildShareUrl() {
   return url.toString();
 }
 
-// Gate in front of anything that's about to fully replace the current working
-// state (a share link, a text import) with something else. Three outcomes:
-//   - nothing at risk, or the current build already matches a saved slot
-//     exactly (activeBuildMatchesCurrent) -> proceed silently, same as always.
-//   - there's real content and it isn't backed up anywhere -> offer to save
-//     it under a name before proceeding, rather than just warning it'll be
-//     lost. Declining the name prompt backs out of the whole operation
-//     entirely (nothing lost, nothing replaced) rather than guessing whether
-//     an empty/cancelled name means "save it anyway" or "never mind".
-//   - offered but explicitly declined saving -> fall back to the plain
-//     "this will replace your build" confirmation, so declining to save
-//     isn't itself a dead end.
-// extraRisk covers a risk source that doesn't fit "spentPoints() > 0" —
-// applySharedBuildFromUrl's caller-supplied droppedRanks check, see below.
-// verb+target are split (rather than one reusable phrase) so both dialogs
-// read as proper sentences - "before loading the shared build" is a gerund,
-// "Load the shared build?" is an imperative, and no single phrase is both.
-function confirmReplaceCurrentBuild(verb, target, extraRisk = false) {
-  if ((spentPoints() <= 0 && !extraRisk) || activeBuildMatchesCurrent()) return true;
-  const wantsSave = confirm(`Your current build isn't saved. Save it as a named build before ${verb}ing ${target}?`);
-  if (wantsSave) {
-    const name = prompt("Name this build:", "");
-    if (!name || !name.trim()) return false;
-    saveBuildAs(name.trim());
-    return true;
-  }
-  return confirm(`${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${target}? This will replace your current build and can't be undone.`);
-}
-
 // Called once on startup. If the URL has a ?build= param, offers to load it — with
 // a confirmation if it would clobber an existing non-empty build — then strips the
 // param from the address bar either way so a refresh doesn't re-prompt. Returns
@@ -226,7 +197,18 @@ export async function applySharedBuildFromUrl(localLoadResult) {
   let notice = null;
   if (json) {
     const extraRisk = !!(localLoadResult && localLoadResult.droppedRanks > 0);
-    const proceed = confirmReplaceCurrentBuild("load", "the shared build from this link", extraRisk);
+    // trustMatch: false when the active slot is the reused "imported" one -
+    // proceeding is about to overwrite that exact slot via saveImportedBuild
+    // below, so treating a match against it as "safely backed up" would be
+    // trusting the very copy this operation is seconds from destroying. Open
+    // link A with no edits, open link B: without this, the gate sees A's
+    // untouched copy "matching" the imported slot and skips the prompt
+    // entirely, then saveImportedBuild silently overwrites A with B - worse
+    // than pre-slots behavior, which at least asked.
+    const proceed = confirmReplaceCurrentBuild("load", "the shared build from this link", {
+      extraRisk,
+      trustMatch: !isActiveBuildTheImportedSlot()
+    });
     if (proceed) {
       const result = applyLoaded(json);
       state.selectedNode = null;
@@ -357,12 +339,21 @@ export function extractBuildCode(text) {
 export async function importBuildFromText(text) {
   const code = extractBuildCode(text);
   if (!code) { showToast("No build code found in that text"); return false; }
-  if (!confirmReplaceCurrentBuild("import", "this build")) return false;
+  // Decode before gating: the replace-confirmation chain (possibly several
+  // dialogs deep) is pointless work - and a strange thing to interrogate the
+  // user with - if what they pasted turns out to be unreadable garbage.
+  let json;
   try {
     // fromBase64Url is a no-op on plain base64 (only touches -/_ chars and
     // pads to length%4, which export-text codes already satisfy), so it's
     // safe to always apply regardless of which format `code` came from.
-    const json = await decodeBuildCode(fromBase64Url(code));
+    json = await decodeBuildCode(fromBase64Url(code));
+  } catch (e) {
+    showToast("Failed to read build text");
+    return false;
+  }
+  if (!confirmReplaceCurrentBuild("import", "this build")) return false;
+  try {
     const result = applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();

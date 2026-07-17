@@ -940,6 +940,8 @@ return { index: i, aa, idx: entry.idx, category, active, stepRank, stepCost, cum
 }
 const BUILDS_INDEX_KEY = "eql_aa_builds_index_v1";
 const BUILD_KEY_PREFIX = "eql_aa_build_";
+const IMPORTED_BUILD_ID = "imported";
+const IMPORTED_BUILD_NAME = "Imported Build";
 const ACTIVE_BUILD_KEY = "eql_aa_active_build_id";
 function loadIndex() {
 try {
@@ -1017,8 +1019,31 @@ saveIndex(index);
 setActiveBuildId(targetId);
 return targetId;
 }
+function saveWithNameCheck(name) {
+const existing = listBuilds().find((b) => b.name === name);
+if (existing && !confirm(`A build named "${name}" already exists. Overwrite it?`)) return false;
+return saveBuildAs(name, existing ? existing.id : null);
+}
+function confirmReplaceCurrentBuild(verb, target, { extraRisk = false, trustMatch = true } = {}) {
+const isBackedUp = trustMatch && activeBuildMatchesCurrent();
+if ((spentPoints() <= 0 && !extraRisk) || isBackedUp) return true;
+const wantsSave = confirm(`Your current build isn't saved. Save it as a named build before ${verb}ing ${target}?`);
+if (wantsSave) {
+const name = prompt("Name this build:", "");
+if (!name || !name.trim()) return false;
+return saveWithNameCheck(name.trim()) !== false;
+}
+return confirm(`${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${target}? This will replace your current build and can't be undone.`);
+}
+function isActiveBuildTheImportedSlot() {
+if (getActiveBuildId() !== IMPORTED_BUILD_ID) return false;
+const entry = loadIndex().find((b) => b.id === IMPORTED_BUILD_ID);
+return !entry || entry.name === IMPORTED_BUILD_NAME;
+}
 function saveImportedBuild() {
-return saveBuildAs("Imported Build", "imported");
+const existing = loadIndex().find((b) => b.id === IMPORTED_BUILD_ID);
+const adopted = existing && existing.name !== IMPORTED_BUILD_NAME;
+return saveBuildAs(IMPORTED_BUILD_NAME, adopted ? null : IMPORTED_BUILD_ID);
 }
 function loadBuild(id) {
 let parsed;
@@ -1040,10 +1065,11 @@ return { droppedRanks: result.droppedRanks, repaired };
 function renameBuild(id, name) {
 const index = loadIndex();
 const entry = index.find((b) => b.id === id);
-if (!entry) return false;
+if (!entry) return "missing";
+if (index.some((b) => b.id !== id && b.name === name)) return "collision";
 entry.name = name;
 saveIndex(index);
-return true;
+return "ok";
 }
 function deleteBuild(id) {
 saveIndex(loadIndex().filter((b) => b.id !== id));
@@ -1678,7 +1704,9 @@ const id = btn.getAttribute("data-id");
 const action = btn.getAttribute("data-action");
 btn.addEventListener("click", () => {
 if (action === "load") {
-if (spentPoints() > 0 && !confirm("Loading this build will replace your current build. Continue?")) return;
+const build = builds.find((b) => b.id === id);
+const target = `the build "${build ? build.name : "?"}"`;
+if (!confirmReplaceCurrentBuild("load", target)) return;
 const result = loadBuild(id);
 if (!result) { showToast("Couldn't load that build — it may have been removed."); return; }
 closeBuildsModal();
@@ -1690,7 +1718,9 @@ const name = prompt("Rename build:", build ? build.name : "");
 if (name === null) return;
 const trimmed = name.trim();
 if (!trimmed) { showToast("Name can't be empty."); return; }
-renameBuild(id, trimmed);
+const outcome = renameBuild(id, trimmed);
+if (outcome === "collision") { showToast(`A build named "${trimmed}" already exists.`); return; }
+if (outcome === "missing") { showToast("Couldn't rename — that build may have been removed."); return; }
 renderBuildsList();
 renderTopbar();
 } else if (action === "delete") {
@@ -1715,9 +1745,8 @@ el.buildsModal.classList.add("hidden");
 function handleBuildSave() {
 const name = el.buildSaveName.value.trim();
 if (!name) { showToast("Enter a name for this build."); return; }
-const existing = listBuilds().find((b) => b.name === name);
-if (existing && !confirm(`A build named "${name}" already exists. Overwrite it?`)) return;
-const id = saveBuildAs(name, existing ? existing.id : null);
+const id = saveWithNameCheck(name);
+if (id === false) return;
 if (!id) { showToast("Couldn't save — local storage may be full or unavailable."); return; }
 el.buildSaveName.value = "";
 renderBuildsList();
@@ -1832,17 +1861,6 @@ url.hash = "";
 url.searchParams.set("build", toBase64Url(await encodeBuildCode()));
 return url.toString();
 }
-function confirmReplaceCurrentBuild(verb, target, extraRisk = false) {
-if ((spentPoints() <= 0 && !extraRisk) || activeBuildMatchesCurrent()) return true;
-const wantsSave = confirm(`Your current build isn't saved. Save it as a named build before ${verb}ing ${target}?`);
-if (wantsSave) {
-const name = prompt("Name this build:", "");
-if (!name || !name.trim()) return false;
-saveBuildAs(name.trim());
-return true;
-}
-return confirm(`${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${target}? This will replace your current build and can't be undone.`);
-}
 async function applySharedBuildFromUrl(localLoadResult) {
 const params = new URLSearchParams(window.location.search);
 const raw = params.get("build");
@@ -1857,7 +1875,10 @@ let applied = false;
 let notice = null;
 if (json) {
 const extraRisk = !!(localLoadResult && localLoadResult.droppedRanks > 0);
-const proceed = confirmReplaceCurrentBuild("load", "the shared build from this link", extraRisk);
+const proceed = confirmReplaceCurrentBuild("load", "the shared build from this link", {
+extraRisk,
+trustMatch: !isActiveBuildTheImportedSlot()
+});
 if (proceed) {
 const result = applyLoaded(json);
 state.selectedNode = null;
@@ -1968,9 +1989,15 @@ return null;
 async function importBuildFromText(text) {
 const code = extractBuildCode(text);
 if (!code) { showToast("No build code found in that text"); return false; }
+let json;
+try {
+json = await decodeBuildCode(fromBase64Url(code));
+} catch (e) {
+showToast("Failed to read build text");
+return false;
+}
 if (!confirmReplaceCurrentBuild("import", "this build")) return false;
 try {
-const json = await decodeBuildCode(fromBase64Url(code));
 const result = applyLoaded(json);
 state.selectedNode = null;
 clearLastMutation();

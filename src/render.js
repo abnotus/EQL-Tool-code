@@ -10,7 +10,10 @@ import {
   costNum, spentPoints, undoLastMutation, canUndo, moveEntry, aaMatchesQuery, countMatches,
   heldRankInvalidReason, findInvalidatedPicks, loadIssuesSuffix
 } from "./logic.js";
-import { listBuilds, getActiveBuildId, saveBuildAs, loadBuild, renameBuild, deleteBuild } from "./builds.js";
+import {
+  listBuilds, getActiveBuildId, loadBuild, renameBuild, deleteBuild,
+  saveWithNameCheck, confirmReplaceCurrentBuild
+} from "./builds.js";
 
 export function renderAll() {
   renderTopbar();
@@ -744,7 +747,9 @@ function renderBuildsList() {
     const action = btn.getAttribute("data-action");
     btn.addEventListener("click", () => {
       if (action === "load") {
-        if (spentPoints() > 0 && !confirm("Loading this build will replace your current build. Continue?")) return;
+        const build = builds.find((b) => b.id === id);
+        const target = `the build "${build ? build.name : "?"}"`;
+        if (!confirmReplaceCurrentBuild("load", target)) return;
         const result = loadBuild(id);
         if (!result) { showToast("Couldn't load that build — it may have been removed."); return; }
         closeBuildsModal();
@@ -756,7 +761,9 @@ function renderBuildsList() {
         if (name === null) return;
         const trimmed = name.trim();
         if (!trimmed) { showToast("Name can't be empty."); return; }
-        renameBuild(id, trimmed);
+        const outcome = renameBuild(id, trimmed);
+        if (outcome === "collision") { showToast(`A build named "${trimmed}" already exists.`); return; }
+        if (outcome === "missing") { showToast("Couldn't rename — that build may have been removed."); return; }
         renderBuildsList();
         renderTopbar();
       } else if (action === "delete") {
@@ -788,9 +795,8 @@ export function closeBuildsModal() {
 export function handleBuildSave() {
   const name = el.buildSaveName.value.trim();
   if (!name) { showToast("Enter a name for this build."); return; }
-  const existing = listBuilds().find((b) => b.name === name);
-  if (existing && !confirm(`A build named "${name}" already exists. Overwrite it?`)) return;
-  const id = saveBuildAs(name, existing ? existing.id : null);
+  const id = saveWithNameCheck(name);
+  if (id === false) return; // declined the overwrite - not an error, just nothing to report
   if (!id) { showToast("Couldn't save — local storage may be full or unavailable."); return; }
   el.buildSaveName.value = "";
   renderBuildsList();

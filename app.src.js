@@ -1343,6 +1343,8 @@ function computeProgressionSteps(order = state.purchaseOrder) {
 
 const BUILDS_INDEX_KEY = "eql_aa_builds_index_v1";
 const BUILD_KEY_PREFIX = "eql_aa_build_";
+const IMPORTED_BUILD_ID = "imported";
+const IMPORTED_BUILD_NAME = "Imported Build";
 // Which saved slot (if any) the current working state was last loaded from or
 // saved as — purely for UI orientation (highlighting it in the list, showing
 // its name near the Builds button). Not part of any build's own payload, and
@@ -1453,6 +1455,67 @@ function saveBuildAs(name, id = null) {
   return targetId;
 }
 
+// Saves under `name`, confirming first if it would silently duplicate an
+// existing slot's name — the interactive-save entry point (handleBuildSave
+// in render.js, confirmReplaceCurrentBuild's own save-first offer below)
+// both fork through here, so "does saving a duplicate name overwrite or
+// duplicate" can't drift between the two paths the way it did before this
+// existed. Returns the slot's id, false if the user declined the overwrite,
+// or null on a storage failure - three outcomes a caller needs to tell apart
+// (a decline isn't an error worth a "couldn't save" toast).
+function saveWithNameCheck(name) {
+  const existing = listBuilds().find((b) => b.name === name);
+  if (existing && !confirm(`A build named "${name}" already exists. Overwrite it?`)) return false;
+  return saveBuildAs(name, existing ? existing.id : null);
+}
+
+// Gate in front of anything that's about to fully replace the current working
+// state (a share link, a text import, loading a different saved slot) with
+// something else. Three outcomes:
+//   - nothing at risk, or the current build already matches a saved slot
+//     exactly (activeBuildMatchesCurrent) -> proceed silently. This is what
+//     makes flipping between two already-saved builds nag-free in either
+//     direction, which is the whole point of the feature.
+//   - there's real content and it isn't backed up anywhere -> offer to save
+//     it under a name before proceeding, rather than just warning it'll be
+//     lost. Declining the name prompt (or the overwrite confirm inside
+//     saveWithNameCheck) backs out of the whole operation entirely rather
+//     than guessing whether that meant "save it anyway" or "never mind".
+//   - offered but explicitly declined saving -> fall back to the plain
+//     "this will replace your build" confirmation, so declining to save
+//     isn't itself a dead end.
+// extraRisk covers a risk source that doesn't fit "spentPoints() > 0" -
+// applySharedBuildFromUrl's caller-supplied droppedRanks check. trustMatch
+// lets a caller say the active-slot match itself isn't trustworthy: opening
+// a share link when the active slot is the reused "imported" one is about to
+// overwrite that exact slot via saveImportedBuild, so treating the match as
+// "safely backed up" would be trusting the very copy the operation is
+// seconds from destroying.
+function confirmReplaceCurrentBuild(verb, target, { extraRisk = false, trustMatch = true } = {}) {
+  const isBackedUp = trustMatch && activeBuildMatchesCurrent();
+  if ((spentPoints() <= 0 && !extraRisk) || isBackedUp) return true;
+  const wantsSave = confirm(`Your current build isn't saved. Save it as a named build before ${verb}ing ${target}?`);
+  if (wantsSave) {
+    const name = prompt("Name this build:", "");
+    if (!name || !name.trim()) return false;
+    return saveWithNameCheck(name.trim()) !== false;
+  }
+  return confirm(`${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${target}? This will replace your current build and can't be undone.`);
+}
+
+// True only while the active slot is *still at risk* from the next
+// saveImportedBuild() call - id "imported" AND still at the default name.
+// Once renamed, saveImportedBuild's own adopted-slot check (below) leaves it
+// alone regardless, so treating it as untrustworthy here too would just be
+// redundant caution: confirmReplaceCurrentBuild's caller would distrust an
+// activeBuildMatchesCurrent() match that's actually accurate, prompting to
+// save content that's already safely sitting under its adopted name.
+function isActiveBuildTheImportedSlot() {
+  if (getActiveBuildId() !== IMPORTED_BUILD_ID) return false;
+  const entry = loadIndex().find((b) => b.id === IMPORTED_BUILD_ID);
+  return !entry || entry.name === IMPORTED_BUILD_NAME;
+}
+
 // A share link is often opened passively (a link in chat), not a deliberate
 // "load a build" action the way pasting import text or using the Builds
 // modal is - easy to lose track of afterward once it's not the active
@@ -1460,8 +1523,16 @@ function saveBuildAs(name, id = null) {
 // genId()'d, so opening another link overwrites this same entry rather than
 // accumulating a pile of them) so it stays one click away in the Builds list
 // even after you've moved on to something else.
+//
+// Reuses that fixed id only while the slot still has its default name. A
+// rename is the user explicitly adopting it - "Imported Build" opening the
+// NEXT link and silently overwriting a slot someone just renamed to keep it
+// would ignore that on-purpose choice, so an adopted slot gets left alone
+// and the next import gets a fresh id (and starts the default name over).
 function saveImportedBuild() {
-  return saveBuildAs("Imported Build", "imported");
+  const existing = loadIndex().find((b) => b.id === IMPORTED_BUILD_ID);
+  const adopted = existing && existing.name !== IMPORTED_BUILD_NAME;
+  return saveBuildAs(IMPORTED_BUILD_NAME, adopted ? null : IMPORTED_BUILD_ID);
 }
 
 // Replaces the current working state with a saved slot's contents — same
@@ -1487,13 +1558,20 @@ function loadBuild(id) {
   return { droppedRanks: result.droppedRanks, repaired };
 }
 
+// False on a name collision with a *different* slot, not just "not found" -
+// renameBuild doesn't merge or overwrite the other entry (unlike saving,
+// where "overwrite it?" has an obvious meaning, two same-named slots would
+// leave save-by-name's find() picking one arbitrarily) - the caller is
+// expected to tell the two apart and report a clash rather than silently
+// treating it as "nothing happened".
 function renameBuild(id, name) {
   const index = loadIndex();
   const entry = index.find((b) => b.id === id);
-  if (!entry) return false;
+  if (!entry) return "missing";
+  if (index.some((b) => b.id !== id && b.name === name)) return "collision";
   entry.name = name;
   saveIndex(index);
-  return true;
+  return "ok";
 }
 
 function deleteBuild(id) {
@@ -2301,7 +2379,9 @@ function renderBuildsList() {
     const action = btn.getAttribute("data-action");
     btn.addEventListener("click", () => {
       if (action === "load") {
-        if (spentPoints() > 0 && !confirm("Loading this build will replace your current build. Continue?")) return;
+        const build = builds.find((b) => b.id === id);
+        const target = `the build "${build ? build.name : "?"}"`;
+        if (!confirmReplaceCurrentBuild("load", target)) return;
         const result = loadBuild(id);
         if (!result) { showToast("Couldn't load that build — it may have been removed."); return; }
         closeBuildsModal();
@@ -2313,7 +2393,9 @@ function renderBuildsList() {
         if (name === null) return;
         const trimmed = name.trim();
         if (!trimmed) { showToast("Name can't be empty."); return; }
-        renameBuild(id, trimmed);
+        const outcome = renameBuild(id, trimmed);
+        if (outcome === "collision") { showToast(`A build named "${trimmed}" already exists.`); return; }
+        if (outcome === "missing") { showToast("Couldn't rename — that build may have been removed."); return; }
         renderBuildsList();
         renderTopbar();
       } else if (action === "delete") {
@@ -2345,9 +2427,8 @@ function closeBuildsModal() {
 function handleBuildSave() {
   const name = el.buildSaveName.value.trim();
   if (!name) { showToast("Enter a name for this build."); return; }
-  const existing = listBuilds().find((b) => b.name === name);
-  if (existing && !confirm(`A build named "${name}" already exists. Overwrite it?`)) return;
-  const id = saveBuildAs(name, existing ? existing.id : null);
+  const id = saveWithNameCheck(name);
+  if (id === false) return; // declined the overwrite - not an error, just nothing to report
   if (!id) { showToast("Couldn't save — local storage may be full or unavailable."); return; }
   el.buildSaveName.value = "";
   renderBuildsList();
@@ -2518,35 +2599,6 @@ async function buildShareUrl() {
   return url.toString();
 }
 
-// Gate in front of anything that's about to fully replace the current working
-// state (a share link, a text import) with something else. Three outcomes:
-//   - nothing at risk, or the current build already matches a saved slot
-//     exactly (activeBuildMatchesCurrent) -> proceed silently, same as always.
-//   - there's real content and it isn't backed up anywhere -> offer to save
-//     it under a name before proceeding, rather than just warning it'll be
-//     lost. Declining the name prompt backs out of the whole operation
-//     entirely (nothing lost, nothing replaced) rather than guessing whether
-//     an empty/cancelled name means "save it anyway" or "never mind".
-//   - offered but explicitly declined saving -> fall back to the plain
-//     "this will replace your build" confirmation, so declining to save
-//     isn't itself a dead end.
-// extraRisk covers a risk source that doesn't fit "spentPoints() > 0" —
-// applySharedBuildFromUrl's caller-supplied droppedRanks check, see below.
-// verb+target are split (rather than one reusable phrase) so both dialogs
-// read as proper sentences - "before loading the shared build" is a gerund,
-// "Load the shared build?" is an imperative, and no single phrase is both.
-function confirmReplaceCurrentBuild(verb, target, extraRisk = false) {
-  if ((spentPoints() <= 0 && !extraRisk) || activeBuildMatchesCurrent()) return true;
-  const wantsSave = confirm(`Your current build isn't saved. Save it as a named build before ${verb}ing ${target}?`);
-  if (wantsSave) {
-    const name = prompt("Name this build:", "");
-    if (!name || !name.trim()) return false;
-    saveBuildAs(name.trim());
-    return true;
-  }
-  return confirm(`${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${target}? This will replace your current build and can't be undone.`);
-}
-
 // Called once on startup. If the URL has a ?build= param, offers to load it — with
 // a confirmation if it would clobber an existing non-empty build — then strips the
 // param from the address bar either way so a refresh doesn't re-prompt. Returns
@@ -2576,7 +2628,18 @@ async function applySharedBuildFromUrl(localLoadResult) {
   let notice = null;
   if (json) {
     const extraRisk = !!(localLoadResult && localLoadResult.droppedRanks > 0);
-    const proceed = confirmReplaceCurrentBuild("load", "the shared build from this link", extraRisk);
+    // trustMatch: false when the active slot is the reused "imported" one -
+    // proceeding is about to overwrite that exact slot via saveImportedBuild
+    // below, so treating a match against it as "safely backed up" would be
+    // trusting the very copy this operation is seconds from destroying. Open
+    // link A with no edits, open link B: without this, the gate sees A's
+    // untouched copy "matching" the imported slot and skips the prompt
+    // entirely, then saveImportedBuild silently overwrites A with B - worse
+    // than pre-slots behavior, which at least asked.
+    const proceed = confirmReplaceCurrentBuild("load", "the shared build from this link", {
+      extraRisk,
+      trustMatch: !isActiveBuildTheImportedSlot()
+    });
     if (proceed) {
       const result = applyLoaded(json);
       state.selectedNode = null;
@@ -2707,12 +2770,21 @@ function extractBuildCode(text) {
 async function importBuildFromText(text) {
   const code = extractBuildCode(text);
   if (!code) { showToast("No build code found in that text"); return false; }
-  if (!confirmReplaceCurrentBuild("import", "this build")) return false;
+  // Decode before gating: the replace-confirmation chain (possibly several
+  // dialogs deep) is pointless work - and a strange thing to interrogate the
+  // user with - if what they pasted turns out to be unreadable garbage.
+  let json;
   try {
     // fromBase64Url is a no-op on plain base64 (only touches -/_ chars and
     // pads to length%4, which export-text codes already satisfy), so it's
     // safe to always apply regardless of which format `code` came from.
-    const json = await decodeBuildCode(fromBase64Url(code));
+    json = await decodeBuildCode(fromBase64Url(code));
+  } catch (e) {
+    showToast("Failed to read build text");
+    return false;
+  }
+  if (!confirmReplaceCurrentBuild("import", "this build")) return false;
+  try {
     const result = applyLoaded(json);
     state.selectedNode = null;
     clearLastMutation();
