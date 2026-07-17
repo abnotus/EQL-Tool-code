@@ -987,6 +987,16 @@ ranks: serializeRanks(state.ranks),
 purchaseOrder: serializePurchaseOrder(state.purchaseOrder)
 };
 }
+function activeBuildMatchesCurrent() {
+const id = getActiveBuildId();
+if (!id) return false;
+try {
+const raw = localStorage.getItem(BUILD_KEY_PREFIX + id);
+return raw != null && raw === JSON.stringify(buildPayload());
+} catch (e) {
+return false;
+}
+}
 function saveBuildAs(name, id = null) {
 const targetId = id || genId();
 try {
@@ -1006,6 +1016,9 @@ index.push({ id: targetId, name, updatedAt });
 saveIndex(index);
 setActiveBuildId(targetId);
 return targetId;
+}
+function saveImportedBuild() {
+return saveBuildAs("Imported Build", "imported");
 }
 function loadBuild(id) {
 let parsed;
@@ -1819,6 +1832,17 @@ url.hash = "";
 url.searchParams.set("build", toBase64Url(await encodeBuildCode()));
 return url.toString();
 }
+function confirmReplaceCurrentBuild(verb, target, extraRisk = false) {
+if ((spentPoints() <= 0 && !extraRisk) || activeBuildMatchesCurrent()) return true;
+const wantsSave = confirm(`Your current build isn't saved. Save it as a named build before ${verb}ing ${target}?`);
+if (wantsSave) {
+const name = prompt("Name this build:", "");
+if (!name || !name.trim()) return false;
+saveBuildAs(name.trim());
+return true;
+}
+return confirm(`${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${target}? This will replace your current build and can't be undone.`);
+}
 async function applySharedBuildFromUrl(localLoadResult) {
 const params = new URLSearchParams(window.location.search);
 const raw = params.get("build");
@@ -1832,8 +1856,8 @@ json = null;
 let applied = false;
 let notice = null;
 if (json) {
-const hasExisting = spentPoints() > 0 || (localLoadResult && localLoadResult.droppedRanks > 0);
-const proceed = !hasExisting || confirm("Load the shared build from this link? This will replace your current build. Export your current build first if you want to keep it.");
+const extraRisk = !!(localLoadResult && localLoadResult.droppedRanks > 0);
+const proceed = confirmReplaceCurrentBuild("load", "the shared build from this link", extraRisk);
 if (proceed) {
 const result = applyLoaded(json);
 state.selectedNode = null;
@@ -1841,7 +1865,8 @@ clearLastMutation();
 clearActiveBuild();
 const repaired = reconcilePurchaseOrderCounts();
 saveLocal();
-notice = `Loaded shared build from link${loadIssuesSuffix(result, repaired)}`;
+saveImportedBuild();
+notice = `Loaded shared build from link — saved as "Imported Build" in Builds${loadIssuesSuffix(result, repaired)}`;
 applied = true;
 }
 } else {
@@ -1943,6 +1968,7 @@ return null;
 async function importBuildFromText(text) {
 const code = extractBuildCode(text);
 if (!code) { showToast("No build code found in that text"); return false; }
+if (!confirmReplaceCurrentBuild("import", "this build")) return false;
 try {
 const json = await decodeBuildCode(fromBase64Url(code));
 const result = applyLoaded(json);

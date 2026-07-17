@@ -77,6 +77,25 @@ function buildPayload() {
   };
 }
 
+// Whether the current working state is byte-for-byte identical to what's
+// actually stored under the active slot — not just "there is an active
+// slot", since further changes since the last save/load would leave the two
+// diverged even with an id still set. Lets a caller about to replace the
+// current build (a share link, a text import) skip warning about losing
+// something that's already safely backed up, without needing a separate
+// "dirty" flag threaded through every mutation path - this just compares
+// on demand instead.
+export function activeBuildMatchesCurrent() {
+  const id = getActiveBuildId();
+  if (!id) return false;
+  try {
+    const raw = localStorage.getItem(BUILD_KEY_PREFIX + id);
+    return raw != null && raw === JSON.stringify(buildPayload());
+  } catch (e) {
+    return false;
+  }
+}
+
 // Snapshots the current build into a named slot — a new one, or an existing
 // one if id is given (the caller's "overwrite this slot" path). Returns the
 // slot's id, or null if localStorage rejected the write (full/unavailable),
@@ -100,6 +119,17 @@ export function saveBuildAs(name, id = null) {
   saveIndex(index);
   setActiveBuildId(targetId);
   return targetId;
+}
+
+// A share link is often opened passively (a link in chat), not a deliberate
+// "load a build" action the way pasting import text or using the Builds
+// modal is - easy to lose track of afterward once it's not the active
+// working state anymore. Auto-saves it under one fixed, reused slot (not
+// genId()'d, so opening another link overwrites this same entry rather than
+// accumulating a pile of them) so it stays one click away in the Builds list
+// even after you've moved on to something else.
+export function saveImportedBuild() {
+  return saveBuildAs("Imported Build", "imported");
 }
 
 // Replaces the current working state with a saved slot's contents — same
