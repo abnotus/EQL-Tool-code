@@ -104,10 +104,12 @@ function costDisplay(catKey, idx, rankIdx, rawCost) {
   if (rawCost !== "?") return { text: escapeHtml(rawCost), isGuess: false };
   const guess = costGuess(catKey, idx, rankIdx);
   if (!guess) return { text: "?", isGuess: false };
-  const title = guess.interpolated
+  const title = guess.manual
+    ? `Estimated (very low confidence) — hand-picked pending wiki confirmation, not derived from other AAs. Not confirmed on the wiki.`
+    : guess.interpolated
     ? `Estimated (${guess.confidence} confidence) — no comparable AA found, interpolated between this AA's own known ranks. Not confirmed on the wiki.`
     : `Estimated (${guess.confidence} confidence) from ${guess.basedOn.join(", ")} — not confirmed on the wiki.`;
-  return { text: `~${guess.value}`, isGuess: true, confidence: guess.confidence, basedOn: guess.basedOn, interpolated: !!guess.interpolated, title };
+  return { text: `~${guess.value}`, isGuess: true, confidence: guess.confidence, basedOn: guess.basedOn, interpolated: !!guess.interpolated, manual: !!guess.manual, title };
 }
 
 export function renderTree(catKey) {

@@ -51,6 +51,8 @@ Regenerates `src/costGuesses.js` — pattern-inferred estimates for the AA per-r
 
 Also just a diagnostic: it rewrites `costGuesses.js` from scratch every run rather than merging, so a guess that no longer has corroborating evidence (or whose slot got a real confirmed value in `data.src.js`) simply stops appearing next time it's run, no manual cleanup needed. Run it by hand after any `data.src.js` change that could plausibly move the picture (a new AA, a confirmed cost that used to be `?`).
 
+For the handful of slots neither sibling matching nor bounded interpolation can reach at all, the script also has a small hand-maintained `MANUAL_GUESSES` dict — curator judgment calls, applied only as an absolute last resort and tagged with their own `"very-low"` confidence tier so the UI never implies they're the same kind of evidence as the algorithmic tiers. They follow the same precedence rule as everything else here: a real cross-AA match at any tier always wins over a manual entry, automatically, the moment the algorithm can produce one.
+
 ## Running locally
 
 No build tools, no server — just open `index.html` in a browser.

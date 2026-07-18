@@ -9,7 +9,8 @@ export const USER_CHANGELOG = [
     items: [
       "New: undocumented per-rank costs (shown as \"?\" on the wiki) can now show a pattern-inferred estimate instead — in the tree, the side panel's next-rank box, and its per-rank cost list. Marked with a ~ and color-coded by confidence, with a tooltip explaining what it's based on. It's a cross-check against other AAs with the same rank count and cost pattern, never a guess from one AA's own numbers alone — an AA that looks like a clean doubling sequence can still turn out wrong once compared against similar AAs that are fully documented.",
       "An estimate never affects point totals or affordability — it's shown for reference only, and the instant the wiki documents the real cost, that takes over automatically.",
-      "Data corrections from a fresh wiki scrape: Combat Fury and Combat Stability both had a previously-undocumented rank confirmed, and Packrat gained several confirmed ranks too."
+      "Data corrections from a fresh wiki scrape: Combat Fury and Combat Stability both had a previously-undocumented rank confirmed, and Packrat gained several confirmed ranks too.",
+      "A handful of costs no comparable AA could cross-check now show a hand-picked estimate instead, marked with its own \"very low\" confidence color and tooltip so it never reads as the same kind of evidence as the others — still shown for reference only, and still replaced automatically the moment the wiki documents the real cost."
     ]
   },
   {

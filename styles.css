@@ -15,14 +15,21 @@
   /* Pattern-inferred cost estimates (see costGuesses.js) - distinct colors
      per confidence tier, not one hue at different lightness, so a tier
      reads as a genuinely different category rather than "more/less of the
-     same". None of the three overlaps red (spend/accent), green
+     same". None of these overlaps red (spend/accent), green
      (afford/maxed/owned), amber (locked/warn/drag-warn), or the waypoint
      palette's saturated hues (a different axis of meaning - which zone of
      the plan - reusing one of those here would make a guess look like it
-     belongs to a waypoint zone). */
+     belongs to a waypoint zone). very-low is a duller, darker relative of
+     low (same muted family, one step further down) rather than an
+     unrelated hue, since it's not a new kind of evidence - it's
+     guess_costs.py's MANUAL_GUESSES, a curator's own judgment call used
+     only when even bounded interpolation found nothing at all, and the
+     color should read as strictly less certain than every algorithmic
+     tier, not just different from them. */
   --estimate-high: #5aa9e6;
   --estimate-medium: #a67cd9;
   --estimate-low: #93877a;
+  --estimate-very-low: #6b6459;
 }
 
 * { box-sizing: border-box; }
@@ -477,6 +484,7 @@ main {
 .node .costtag.is-estimate.tier-high { border-color: var(--estimate-high); color: var(--estimate-high); }
 .node .costtag.is-estimate.tier-medium { border-color: var(--estimate-medium); color: var(--estimate-medium); }
 .node .costtag.is-estimate.tier-low { border-color: var(--estimate-low); color: var(--estimate-low); }
+.node .costtag.is-estimate.tier-very-low { border-color: var(--estimate-very-low); color: var(--estimate-very-low); }
 
 .auto-badge {
   color: #c9c9ce;
@@ -615,6 +623,7 @@ main {
 .confidence-chip.tier-high { color: var(--estimate-high); }
 .confidence-chip.tier-medium { color: var(--estimate-medium); }
 .confidence-chip.tier-low { color: var(--estimate-low); }
+.confidence-chip.tier-very-low { color: var(--estimate-very-low); }
 
 .rank-costs {
   display: flex;
@@ -641,6 +650,7 @@ main {
 .rank-costs .pip.is-estimate.tier-high { border-color: var(--estimate-high); color: var(--estimate-high); background: rgba(90,169,230,0.08); }
 .rank-costs .pip.is-estimate.tier-medium { border-color: var(--estimate-medium); color: var(--estimate-medium); background: rgba(166,124,217,0.08); }
 .rank-costs .pip.is-estimate.tier-low { border-color: var(--estimate-low); color: var(--estimate-low); background: rgba(147,135,122,0.08); }
+.rank-costs .pip.is-estimate.tier-very-low { border-color: var(--estimate-very-low); color: var(--estimate-very-low); background: rgba(107,100,89,0.08); }
 
 /* A rank can be both .spent (already purchased, via costNum() treating its
    unknown real cost as 0) and .is-estimate (a guess exists for what it
@@ -653,6 +663,7 @@ main {
 .rank-costs .pip.spent.is-estimate.tier-high { border-color: var(--estimate-high); color: var(--estimate-high); background: rgba(90,169,230,0.08); }
 .rank-costs .pip.spent.is-estimate.tier-medium { border-color: var(--estimate-medium); color: var(--estimate-medium); background: rgba(166,124,217,0.08); }
 .rank-costs .pip.spent.is-estimate.tier-low { border-color: var(--estimate-low); color: var(--estimate-low); background: rgba(147,135,122,0.08); }
+.rank-costs .pip.spent.is-estimate.tier-very-low { border-color: var(--estimate-very-low); color: var(--estimate-very-low); background: rgba(107,100,89,0.08); }
 
 #sidePanel .empty {
   color: var(--text-faint);

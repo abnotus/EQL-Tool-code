@@ -26,10 +26,26 @@ guess:
             value is provably between two real numbers either way, so it's
             attempted even with zero corroborating siblings; still capped
             at "low", since it has no external evidence behind it at all
-    (none)  zero matching siblings AND no bounded gap to interpolate (a
-            trailing/leading "?" past every known rank, like Adamant Will's
-            own rank 4, needs sibling corroboration or nothing) — a bad
-            guess is worse than an honest "?"
+    very-low  MANUAL_GUESSES only (see below) — a human-judgment fallback
+            for a slot neither of the above could reach at all, lowest
+            priority of everything here
+    (none)  zero matching siblings, no bounded gap, and no manual entry —
+            a bad guess is worse than an honest "?"
+
+MANUAL_GUESSES below is the one hand-maintained exception to "never a
+single AA's own progression, never a stylistic guess": a short, explicit
+list of curator judgment calls for the handful of slots where the
+algorithm found no sibling evidence and no bounded gap at all (checked
+2026-07-18 against the 11 AAs that came up empty - see the project's own
+history for that review). Every entry here is ONLY ever applied as a last
+resort, after guess_for_entry has already tried and failed for that exact
+rank - real cross-AA evidence at ANY tier always outranks a manual guess,
+and always will, even if a future data change lets the algorithm find
+something for a slot listed here. Written to costGuesses.js tagged
+confidence "very-low" (a real, distinct tier from the algorithm's own
+high/medium/low, not a re-use of "low") specifically so the UI never
+implies this came from the same kind of evidence the others did. Update
+this dict by hand; nothing regenerates it.
 
 A "matching sibling" also has to be a normal, non-decreasing cost curve —
 Natural Durability's real, fully-known costs are (2,4,6,2), a cost DROP at
@@ -66,6 +82,26 @@ DATA_ENTRY_AUTORANKS = re.compile(r'\bautoRanks:\s*\d+')
 HIGH_MIN_SIBLINGS = 2
 MEDIUM_MAJORITY = 2.0 / 3.0
 LOW_MAJORITY = 0.5
+
+# Hand-maintained fallback for slots the algorithm has no evidence for at
+# all (no matching sibling, no bounded gap either) - see the module
+# docstring for the ground rules. Keyed by AA name (unique across the
+# current dataset - see wiki-sync/guess_costs.py's own tests/history if
+# that ever stops being true and a name collides across classes) mapping
+# to {rank_index (0-based, matching costs[]): value}. Only ever applied to
+# a rank guess_for_entry itself produced nothing for.
+MANUAL_GUESSES = {
+    "Crafting Mastery": {1: 4, 2: 5, 3: 6, 4: 7, 5: 8},
+    "First Aid": {1: 2, 2: 3, 3: 4, 4: 5, 5: 6},
+    "Innate Eminence": {3: 3, 4: 3},
+    "Innate Regeneration": {5: 4, 6: 5},
+    "Packrat": {4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1},
+    "Stoicism": {1: 3, 2: 4, 3: 5, 4: 6},
+    "Spell Casting Subtlety": {1: 3, 2: 4, 3: 5, 4: 6, 5: 7},
+    "Reaching Notes": {3: 8, 4: 10, 5: 12},
+    "Blood Rune": {2: 4},
+    "Conjurer's Efficiency": {1: 4, 2: 5, 3: 6, 4: 7},
+}
 
 
 def slugify(name):
@@ -175,7 +211,10 @@ def guess_for_entry(entry, reference_pool):
     """reference_pool: list of {ranks, values (list[int]), monotonic} for
     every OTHER fully-known, non-auto, non-autoRanks AA. Returns
     {rank_idx: {"value": int, "confidence": str, "basedOn": [names]}} for
-    whichever unknown ranks got a confident-enough guess (possibly empty)."""
+    whichever unknown ranks got a confident-enough guess (possibly empty).
+    A rank neither sibling-matching nor bounded interpolation could reach
+    falls through to MANUAL_GUESSES as an absolute last resort, tagged
+    confidence "very-low" with manual: True."""
     ranks = entry["ranks"]
     costs = entry["costs"]
     known = {i: int(c) for i, c in enumerate(costs) if c != "?" and i < ranks}
@@ -218,6 +257,13 @@ def guess_for_entry(entry, reference_pool):
             if interp:
                 top_value, confidence = interp["value"], interp["confidence"]
 
+        manual_entry = False
+        if confidence is None:
+            manual = MANUAL_GUESSES.get(entry.get("name"), {})
+            if i in manual:
+                top_value, confidence = manual[i], "very-low"
+                manual_entry = True
+
         if confidence is None:
             continue
 
@@ -234,6 +280,8 @@ def guess_for_entry(entry, reference_pool):
         entry_out = {"value": top_value, "confidence": confidence, "basedOn": based_on}
         if not based_on and confidence == "low":
             entry_out["interpolated"] = True
+        if manual_entry:
+            entry_out["manual"] = True
         result[i] = entry_out
     return result
 
@@ -255,9 +303,10 @@ def write_output(table, stats):
             g = guesses[rank_idx]
             based_on = ", ".join(js_string(n) for n in g["basedOn"])
             interp = ", interpolated: true" if g.get("interpolated") else ""
+            manual = ", manual: true" if g.get("manual") else ""
             parts.append(
                 f'"{rank_idx}": {{ value: {g["value"]}, confidence: {js_string(g["confidence"])}, '
-                f'basedOn: [{based_on}]{interp} }}'
+                f'basedOn: [{based_on}]{interp}{manual} }}'
             )
         lines.append(f'  {js_string(idk)}: {{ {", ".join(parts)} }}')
     body = ",\n".join(lines)
@@ -330,10 +379,11 @@ def main():
     print(f"Reference pool: {len(reference_pool)} fully-known AAs "
           f"({sum(1 for r in reference_pool if r['monotonic'])} monotonic)")
     print(f"Wrote guesses for {len(table)} AAs, {sum(len(g) for g in table.values())} individual ranks")
-    print(f"  high: {tier_counts['high']}  medium: {tier_counts['medium']}  low: {tier_counts['low']}")
+    print(f"  high: {tier_counts['high']}  medium: {tier_counts['medium']}  low: {tier_counts['low']}  "
+          f"very-low (manual): {tier_counts['very-low']}")
     unguessed = targets - len(table)
     if unguessed:
-        print(f"{unguessed} AA(s) with a \"?\" cost got no guess at all (no matching sibling, or a tie)")
+        print(f"{unguessed} AA(s) with a \"?\" cost got no guess at all (no matching sibling, no bounded gap, no manual entry)")
 
 
 if __name__ == "__main__":
