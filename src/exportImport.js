@@ -70,11 +70,12 @@ function buildCodeObject(includeOwned) {
   // Unlike o (owned), w is unconditional - waypoints are plan structure
   // ("get these by 75 pts" is a statement about this ordering), same as
   // ranks/purchaseOrder, not personal data that needs an opt-in. No AA
-  // identity involved (just a point total + label), so no id lookup needed
-  // the way compactRanksFor needs for ranks/owned - a bare [pts, label]
-  // pair per waypoint. Additive field: old clients that don't know about it
-  // just ignore it, no BUILD_CODE_VERSION bump needed.
-  if (state.waypoints.length) payload.w = state.waypoints.map((w) => [w.pts, w.label]);
+  // identity involved (just a point total + label + color), so no id lookup
+  // needed the way compactRanksFor needs for ranks/owned - a bare
+  // [pts, label, color] triple per waypoint. Additive field: old clients
+  // that don't know about it just ignore it, no BUILD_CODE_VERSION bump
+  // needed.
+  if (state.waypoints.length) payload.w = state.waypoints.map((w) => [w.pts, w.label, w.color]);
   return payload;
 }
 

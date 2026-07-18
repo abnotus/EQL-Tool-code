@@ -366,7 +366,7 @@ const USER_CHANGELOG = [
     version: "1.5.0",
     date: "2026-07-18",
     items: [
-      "New: Waypoints on the Progression tab — mark a point total worth returning to (with an optional name, like \"Level 20\" or \"Turn-in gear\") and it shows up as a labeled divider right where your training order crosses it. Click a waypoint's chip to highlight everything you'll have by then; click it again to clear the highlight.",
+      "New: Waypoints on the Progression tab — mark a point total worth returning to (with an optional name, like \"Level 20\" or \"Turn-in gear\") and it shows up as a labeled divider right where your training order crosses it. Give it a color to have that stretch of steps stand out at a glance — every colored waypoint's stretch shows at once, so you can color-code the whole plan into zones instead of looking at one at a time. Click a chip or its divider to edit it, including changing its color or point total later.",
       "Waypoints are anchored to a point total, not a position in the list, so they hold up under reordering, undo, and Reset Build without needing to be redone — Reset Build keeps them the same way it keeps owned progress. They travel with the plan: included in named Builds and share links/export codes."
     ]
   },
@@ -481,8 +481,8 @@ let state = {
   // share link must never overwrite or wipe it, since it isn't part of "the
   // build" at all. See loadAndApplyOwned/saveOwned.
   owned: { general: {}, archetype: {}, special: {}, classes: {} },
-  // Named point-total markers ({ pts, label }), sorted ascending by pts and
-  // deduped by pts. Unlike owned, these describe the PLAN itself ("get these
+  // Named point-total markers ({ pts, label, color }), sorted ascending by
+  // pts and deduped by pts. Unlike owned, these describe the PLAN itself ("get these
   // by 75 pts" is a statement about this ordering), so they live inside the
   // build payload/slots/share codes, not a separate global key. Anchored to
   // a point total rather than a list position or step reference on purpose -
@@ -598,30 +598,54 @@ function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
 // MAX_TOTAL_POINTS above).
 const MAX_WAYPOINTS = 200;
 
+// Curated palette rather than a free color picker - a handful of
+// distinguishable, pre-tuned-for-the-dark-theme options is enough to color
+// code a build's steps, and keeps every colored segment/swatch/divider
+// dot readable without needing per-color contrast checking against
+// arbitrary user-chosen hex values. key is what's actually stored on a
+// waypoint and round-tripped through save/export; hex is only for the
+// swatch-picker UI (render.js) - the segment/divider tints themselves are
+// plain CSS classes keyed off it (styles.css).
+const WAYPOINT_COLORS = [
+  { key: "red", hex: "#d94c4c" },
+  { key: "orange", hex: "#d98a3d" },
+  { key: "yellow", hex: "#d9c23d" },
+  { key: "green", hex: "#4c8c52" },
+  { key: "teal", hex: "#3da6a0" },
+  { key: "blue", hex: "#4c7fd9" },
+  { key: "purple", hex: "#9c4cd9" }
+];
+const WAYPOINT_COLOR_KEYS = new Set(WAYPOINT_COLORS.map((c) => c.key));
+
 // Waypoints don't reference any AA identity (unlike ranks/purchaseOrder), so
 // there's no name-key resolution here - just validating/clamping untrusted
 // input from localStorage, a pasted build code, or a share link into the
-// { pts, label } shape state.waypoints actually uses. Accepts either that
-// verbose shape or the compact [pts, label] pair exportImport.js's `w` field
-// uses, so this one function can sanitize both sources. Duplicate pts values
-// collapse to the last one seen (an explicit re-set should win over an
-// earlier stale entry, not silently create two markers at the same total).
+// { pts, label, color } shape state.waypoints actually uses. Accepts either
+// that verbose shape or the compact [pts, label, color] triple
+// exportImport.js's `w` field uses, so this one function can sanitize both
+// sources. Duplicate pts values collapse to the last one seen (an explicit
+// re-set should win over an earlier stale entry, not silently create two
+// markers at the same total). An unrecognized color (a stale/hand-edited
+// value, or a future palette entry an older client doesn't know) degrades
+// to no color rather than being kept as an opaque string render.js would
+// have no matching CSS class for.
 function sanitizeWaypoints(list) {
   if (!Array.isArray(list)) return [];
   const byPts = new Map();
   list.forEach((entry) => {
-    let rawPts, rawLabel;
-    if (Array.isArray(entry)) [rawPts, rawLabel] = entry;
-    else if (entry && typeof entry === "object") { rawPts = entry.pts; rawLabel = entry.label; }
+    let rawPts, rawLabel, rawColor;
+    if (Array.isArray(entry)) [rawPts, rawLabel, rawColor] = entry;
+    else if (entry && typeof entry === "object") { rawPts = entry.pts; rawLabel = entry.label; rawColor = entry.color; }
     else return;
     const pts = parseInt(rawPts, 10);
     if (!Number.isFinite(pts) || pts < 0) return;
     const clamped = Math.min(pts, MAX_TOTAL_POINTS);
     const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim().slice(0, 60) : null;
-    byPts.set(clamped, label);
+    const color = typeof rawColor === "string" && WAYPOINT_COLOR_KEYS.has(rawColor) ? rawColor : null;
+    byPts.set(clamped, { label, color });
   });
   return Array.from(byPts.entries())
-    .map(([pts, label]) => ({ pts, label }))
+    .map(([pts, { label, color }]) => ({ pts, label, color }))
     .sort((a, b) => a.pts - b.pts)
     .slice(0, MAX_WAYPOINTS);
 }
@@ -995,14 +1019,14 @@ function clearAllOwned() {
 // so adding/removing a waypoint never clobbers (or gets clobbered by) an
 // unrelated pending Undo Last. Returns false without changing anything if
 // pts isn't a valid non-negative number.
-function addOrUpdateWaypoint(pts, label) {
+function addOrUpdateWaypoint(pts, label, color) {
   const n = parseInt(pts, 10);
   if (!Number.isFinite(n) || n < 0) return false;
-  // sanitizeWaypoints does the actual clamping/label-cleaning/sorting/dedup
-  // (last entry for a given pts wins), so re-run the merged array through it
-  // rather than duplicating that logic here.
+  // sanitizeWaypoints does the actual clamping/label-cleaning/color-
+  // validating/sorting/dedup (last entry for a given pts wins), so re-run
+  // the merged array through it rather than duplicating that logic here.
   const merged = state.waypoints.filter((w) => w.pts !== n);
-  merged.push({ pts: n, label });
+  merged.push({ pts: n, label, color });
   state.waypoints = sanitizeWaypoints(merged);
   saveLocal();
   return true;
@@ -1723,13 +1747,24 @@ function computeProgressionSteps(order = state.purchaseOrder) {
 }
 
 // Interleaves computeProgressionSteps' output with divider markers for each
-// waypoint, in cumulative order: { type: "step", ...s } for a real step,
-// { type: "divider", pts, label, unreached } where a waypoint's threshold
-// falls. A divider for waypoint W goes right after the last step whose
-// cumulative is <= W.pts and right before the first step whose cumulative
-// exceeds it (inclusive boundary - a step landing exactly on the threshold
-// counts as reaching it, not past it). state.waypoints is already sorted
-// ascending by pts, so this is a single merge pass, no re-sorting needed.
+// waypoint, in cumulative order: { type: "step", ...s, segmentColor } for a
+// real step, { type: "divider", pts, label, color, unreached } where a
+// waypoint's threshold falls. A divider for waypoint W goes right after the
+// last step whose cumulative is <= W.pts and right before the first step
+// whose cumulative exceeds it (inclusive boundary - a step landing exactly
+// on the threshold counts as reaching it, not past it). state.waypoints is
+// already sorted ascending by pts, so this is a single merge pass, no
+// re-sorting needed.
+//
+// segmentColor is the color of the waypoint a step falls under - the
+// smallest not-yet-flushed threshold that still contains it, which is
+// exactly wps[wi] at the point each step gets pushed (everything strictly
+// below the step's own cumulative was already flushed by the while loop
+// above it). null if there's no such waypoint (past every threshold, or
+// that waypoint has no color assigned) - the color-coding this enables is
+// simultaneous across every colored waypoint's segment, not a single
+// selected one, since the point is seeing the whole plan's zones at a
+// glance.
 //
 // A waypoint whose pts is never reached (every step's cumulative stays
 // below it - an aspirational marker, or simply an empty/small plan) gets
@@ -1753,14 +1788,15 @@ function computeProgressionTimeline(steps) {
   let lastCumulative = 0;
   steps.forEach((s) => {
     while (wi < wps.length && wps[wi].pts < s.cumulative) {
-      timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: false });
+      timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, color: wps[wi].color, unreached: false });
       wi++;
     }
-    timeline.push({ type: "step", ...s });
+    const owner = wi < wps.length ? wps[wi] : null;
+    timeline.push({ type: "step", ...s, segmentColor: owner ? owner.color : null });
     lastCumulative = s.cumulative;
   });
   while (wi < wps.length) {
-    timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: wps[wi].pts > lastCumulative });
+    timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, color: wps[wi].color, unreached: wps[wi].pts > lastCumulative });
     wi++;
   }
   return timeline;
@@ -2100,6 +2136,14 @@ function cacheDom() {
   el.clearOwnedBtn = document.getElementById("clearOwnedBtn");
   el.addWaypointBtn = document.getElementById("addWaypointBtn");
   el.waypointChips = document.getElementById("waypointChips");
+  el.waypointModal = document.getElementById("waypointModal");
+  el.waypointModalTitle = document.getElementById("waypointModalTitle");
+  el.waypointPtsInput = document.getElementById("waypointPtsInput");
+  el.waypointLabelInput = document.getElementById("waypointLabelInput");
+  el.waypointColorSwatches = document.getElementById("waypointColorSwatches");
+  el.deleteWaypointBtn = document.getElementById("deleteWaypointBtn");
+  el.cancelWaypointBtn = document.getElementById("cancelWaypointBtn");
+  el.saveWaypointBtn = document.getElementById("saveWaypointBtn");
   el.treeWrap = document.getElementById("treeWrap");
   el.sidePanel = document.getElementById("sidePanel");
   el.globalSearch = document.getElementById("globalSearch");
@@ -2471,13 +2515,14 @@ function renderSummary() {
 const expandedSteps = new Set();
 function expandKey(s) { return `${s.category || ""}:${s.idx}:${s.stepRank}`; }
 
-// Which waypoint's segment is currently highlighted, by its pts value (pts
-// is unique per waypoint - see sanitizeWaypoints' dedup). Same spirit as
-// expandedSteps: purely transient UI selection, not persisted, and never
-// touches lastMutation - "swapping" between waypoints is just changing what
-// you're looking at, not a plan mutation. Cleared automatically by
-// renderWaypointChips if the selected waypoint was removed out from under it.
-let selectedWaypointPts = null;
+// Waypoint add/edit modal state - which waypoint (by pts, unique per
+// sanitizeWaypoints' dedup) is being edited, or null when the modal is
+// adding a new one. modalSelectedColor tracks the in-progress swatch pick
+// while the modal is open, applied on Save. Both purely transient UI state,
+// same spirit as expandedSteps - never touches lastMutation, since editing
+// a waypoint is plan annotation, not a plan mutation.
+let editingWaypointPts = null;
+let modalSelectedColor = null;
 
 // Index (into state.purchaseOrder) of the row currently being dragged, or null
 // when no drag is in progress. Module-level since dragstart/dragover/drop fire
@@ -2560,59 +2605,96 @@ function dragWouldIntroduceWarn(toIndex) {
 }
 
 // Renders the waypoint chip row - one pill per state.waypoints entry
-// (already sorted ascending by pts), clicking the label toggles it as the
-// selected/highlighted segment (clicking the active one deselects, matching
-// "swapping" being a single-select action), the &times; removes it outright.
-// Called from renderProgression, but unconditionally - see its own comment
-// for why this can't wait behind the empty-progression check.
+// (already sorted ascending by pts), with a color dot if one's assigned.
+// Clicking the label opens the edit modal for that waypoint; the &times;
+// removes it directly, without opening anything, for a fast delete. Called
+// from renderProgression, but unconditionally - see its own comment for why
+// this can't wait behind the empty-progression check.
 function renderWaypointChips() {
-  if (selectedWaypointPts !== null && !state.waypoints.some((w) => w.pts === selectedWaypointPts)) {
-    selectedWaypointPts = null;
-  }
   if (!state.waypoints.length) {
     el.waypointChips.innerHTML = "";
     return;
   }
   el.waypointChips.innerHTML = state.waypoints.map((w) => {
-    const active = w.pts === selectedWaypointPts;
+    const dot = w.color ? `<span class="color-dot color-${w.color}"></span>` : "";
     const labelText = w.label ? `${w.pts} pts &middot; ${escapeHtml(w.label)}` : `${w.pts} pts`;
-    return `<span class="waypoint-chip${active ? " active" : ""}" data-pts="${w.pts}">
-      <span class="chip-label" data-pts="${w.pts}">${labelText}</span>
+    return `<span class="waypoint-chip" data-pts="${w.pts}">
+      <span class="chip-label" data-pts="${w.pts}">${dot}${labelText}</span>
       <button class="chip-remove" data-pts="${w.pts}" title="Remove this waypoint" aria-label="Remove waypoint">&times;</button>
     </span>`;
   }).join("");
   Array.from(el.waypointChips.querySelectorAll(".chip-label")).forEach((labelEl) => {
     labelEl.addEventListener("click", () => {
-      const pts = parseInt(labelEl.getAttribute("data-pts"), 10);
-      selectedWaypointPts = selectedWaypointPts === pts ? null : pts;
-      renderProgression();
+      openWaypointModal(parseInt(labelEl.getAttribute("data-pts"), 10));
     });
   });
   Array.from(el.waypointChips.querySelectorAll(".chip-remove")).forEach((btn) => {
     btn.addEventListener("click", () => {
-      const pts = parseInt(btn.getAttribute("data-pts"), 10);
-      removeWaypoint(pts);
-      if (selectedWaypointPts === pts) selectedWaypointPts = null;
+      removeWaypoint(parseInt(btn.getAttribute("data-pts"), 10));
       renderProgression();
     });
   });
 }
 
-// Prompts for a point total (and optional name) and adds/replaces the
-// waypoint at that total. Native prompt() rather than a modal - two short
-// fields, same lightweight-dialog spirit as confirmReplaceCurrentBuild's
-// save-first flow elsewhere in this app, not worth a whole form for.
-function handleAddWaypoint() {
-  const raw = prompt("Waypoint at how many points?", String(spentPoints()));
-  if (raw === null) return;
-  const pts = parseInt(raw.trim(), 10);
+// Populates the color swatch picker inside the waypoint modal - a "none"
+// swatch plus one per WAYPOINT_COLORS entry, with modalSelectedColor's match
+// shown active. Re-rendered on every pick so the active state updates
+// without needing to touch the rest of the modal.
+function renderColorSwatches() {
+  const noneSwatch = `<button type="button" class="color-swatch none${modalSelectedColor === null ? " active" : ""}" data-color="" title="No color" aria-label="No color"></button>`;
+  const colorSwatches = WAYPOINT_COLORS.map((c) =>
+    `<button type="button" class="color-swatch color-${c.key}${modalSelectedColor === c.key ? " active" : ""}" data-color="${c.key}" title="${c.key}" aria-label="${c.key}"></button>`
+  ).join("");
+  el.waypointColorSwatches.innerHTML = noneSwatch + colorSwatches;
+  Array.from(el.waypointColorSwatches.querySelectorAll(".color-swatch")).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      modalSelectedColor = btn.getAttribute("data-color") || null;
+      renderColorSwatches();
+    });
+  });
+}
+
+// Opens the add/edit modal. existingPts identifies which waypoint to edit
+// (by pts, its stable identity), or null to add a new one prefilled with
+// the current spent total.
+function openWaypointModal(existingPts = null) {
+  const existing = existingPts !== null ? state.waypoints.find((w) => w.pts === existingPts) : null;
+  editingWaypointPts = existingPts;
+  modalSelectedColor = existing ? existing.color : null;
+  el.waypointModalTitle.textContent = existing ? "Edit Waypoint" : "Add Waypoint";
+  el.waypointPtsInput.value = String(existing ? existing.pts : spentPoints());
+  el.waypointLabelInput.value = existing && existing.label ? existing.label : "";
+  el.deleteWaypointBtn.classList.toggle("hidden", !existing);
+  renderColorSwatches();
+  el.waypointModal.classList.remove("hidden");
+  el.waypointPtsInput.focus();
+  el.waypointPtsInput.select();
+}
+
+function closeWaypointModal() {
+  el.waypointModal.classList.add("hidden");
+}
+
+function handleSaveWaypoint() {
+  const pts = parseInt(el.waypointPtsInput.value.trim(), 10);
   if (!Number.isFinite(pts) || pts < 0) {
     showToast("Enter a point total of 0 or more.");
     return;
   }
-  const label = prompt("Name this waypoint (optional):", "");
-  if (!addOrUpdateWaypoint(pts, label)) return;
-  selectedWaypointPts = pts;
+  // Editing can change the point total itself - that's a different identity
+  // (waypoints are keyed by pts), so the old entry has to be explicitly
+  // dropped first or both would coexist instead of one replacing the other.
+  if (editingWaypointPts !== null && editingWaypointPts !== pts) {
+    removeWaypoint(editingWaypointPts);
+  }
+  addOrUpdateWaypoint(pts, el.waypointLabelInput.value, modalSelectedColor);
+  closeWaypointModal();
+  renderProgression();
+}
+
+function handleDeleteWaypoint() {
+  if (editingWaypointPts !== null) removeWaypoint(editingWaypointPts);
+  closeWaypointModal();
   renderProgression();
 }
 
@@ -2641,35 +2723,28 @@ function renderProgression() {
   const togoPts = spentPoints() - ownedPts;
   el.ownedSummary.textContent = `${ownedPts} pt${ownedPts === 1 ? "" : "s"} owned, ${togoPts} to go`;
 
-  // Bounds of the currently-selected waypoint's segment, if any - the
-  // previous waypoint's pts (exclusive) through the selected one's (
-  // inclusive). -1 as the lower bound when there's no previous waypoint,
-  // since every real cumulative is >= 0. A selection whose waypoint no
-  // longer exists (just removed) is stale - drop it rather than highlight
-  // nothing while still claiming something's selected.
-  let segBounds = null;
-  if (selectedWaypointPts !== null) {
-    const idx = state.waypoints.findIndex((w) => w.pts === selectedWaypointPts);
-    if (idx >= 0) segBounds = { lo: idx > 0 ? state.waypoints[idx - 1].pts : -1, hi: selectedWaypointPts };
-    else selectedWaypointPts = null;
-  }
-
+  // computeProgressionTimeline tags each step with segmentColor (the color
+  // of the waypoint whose range it falls under, if any) - every colored
+  // waypoint's segment renders simultaneously, not just one selected at a
+  // time, since the point of color-coding is seeing the whole plan's zones
+  // at a glance.
   const timeline = computeProgressionTimeline(steps);
   const htmlParts = timeline.map((entry) => {
     if (entry.type === "divider") {
+      const dot = entry.color ? `<span class="color-dot color-${entry.color}"></span>` : "";
       const labelText = entry.label ? `${escapeHtml(entry.label)} &middot; ` : "";
-      return `<div class="progression-divider${entry.unreached ? " unreached" : ""}">
+      return `<div class="progression-divider${entry.unreached ? " unreached" : ""}" data-pts="${entry.pts}" title="Click to edit this waypoint">
         <span class="divider-line"></span>
-        <span class="divider-label">${labelText}${entry.pts} pts${entry.unreached ? " &middot; not reached yet" : ""}</span>
+        ${dot}<span class="divider-label">${labelText}${entry.pts} pts${entry.unreached ? " &middot; not reached yet" : ""}</span>
         <span class="divider-line"></span>
       </div>`;
     }
     const s = entry;
-    const inSeg = !!segBounds && s.cumulative > segBounds.lo && s.cumulative <= segBounds.hi;
     const canExpand = !!(s.aa && s.stepRank < s.aa.ranks);
     const key = expandKey(s);
     const expanded = canExpand && expandedSteps.has(key);
-    const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}${inSeg ? " segment-highlight" : ""}" draggable="true" data-index="${s.index}">
+    const segClass = s.segmentColor ? ` segment-color-${s.segmentColor}` : "";
+    const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}${segClass}" draggable="true" data-index="${s.index}">
       <span class="drag-handle" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
       <span class="step-num">${s.index + 1}</span>
       <span class="step-info">
@@ -2823,6 +2898,9 @@ function renderProgression() {
   // the very start" instead, via the first row's own top-half indicator.
   Array.from(el.progressionContent.querySelectorAll(".progression-divider")).forEach((divEl) => {
     const ownerRow = findPrecedingRow(divEl);
+    divEl.addEventListener("click", () => {
+      openWaypointModal(parseInt(divEl.getAttribute("data-pts"), 10));
+    });
     divEl.addEventListener("dragover", (e) => {
       if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
       e.preventDefault();
@@ -3169,11 +3247,12 @@ function buildCodeObject(includeOwned) {
   // Unlike o (owned), w is unconditional - waypoints are plan structure
   // ("get these by 75 pts" is a statement about this ordering), same as
   // ranks/purchaseOrder, not personal data that needs an opt-in. No AA
-  // identity involved (just a point total + label), so no id lookup needed
-  // the way compactRanksFor needs for ranks/owned - a bare [pts, label]
-  // pair per waypoint. Additive field: old clients that don't know about it
-  // just ignore it, no BUILD_CODE_VERSION bump needed.
-  if (state.waypoints.length) payload.w = state.waypoints.map((w) => [w.pts, w.label]);
+  // identity involved (just a point total + label + color), so no id lookup
+  // needed the way compactRanksFor needs for ranks/owned - a bare
+  // [pts, label, color] triple per waypoint. Additive field: old clients
+  // that don't know about it just ignore it, no BUILD_CODE_VERSION bump
+  // needed.
+  if (state.waypoints.length) payload.w = state.waypoints.map((w) => [w.pts, w.label, w.color]);
   return payload;
 }
 
@@ -3647,6 +3726,7 @@ function wireEvents() {
     if (!el.changelogModal.classList.contains("hidden")) closeChangelogModal();
     if (!el.buildsModal.classList.contains("hidden")) closeBuildsModal();
     if (!el.resetModal.classList.contains("hidden")) closeResetModal();
+    if (!el.waypointModal.classList.contains("hidden")) closeWaypointModal();
   });
 
   el.versionTag.addEventListener("click", openChangelogModal);
@@ -3696,7 +3776,17 @@ function wireEvents() {
     showToast("Owned progress cleared");
   });
 
-  el.addWaypointBtn.addEventListener("click", handleAddWaypoint);
+  el.addWaypointBtn.addEventListener("click", () => openWaypointModal());
+  el.cancelWaypointBtn.addEventListener("click", closeWaypointModal);
+  el.saveWaypointBtn.addEventListener("click", handleSaveWaypoint);
+  el.deleteWaypointBtn.addEventListener("click", handleDeleteWaypoint);
+  el.waypointModal.addEventListener("click", (e) => { if (e.target === el.waypointModal) closeWaypointModal(); });
+  el.waypointLabelInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleSaveWaypoint();
+  });
+  el.waypointPtsInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleSaveWaypoint();
+  });
 
   el.dismissBannerBtn.addEventListener("click", () => {
     el.disclaimerBanner.classList.add("hidden");

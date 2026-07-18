@@ -46,8 +46,8 @@ export let state = {
   // share link must never overwrite or wipe it, since it isn't part of "the
   // build" at all. See loadAndApplyOwned/saveOwned.
   owned: { general: {}, archetype: {}, special: {}, classes: {} },
-  // Named point-total markers ({ pts, label }), sorted ascending by pts and
-  // deduped by pts. Unlike owned, these describe the PLAN itself ("get these
+  // Named point-total markers ({ pts, label, color }), sorted ascending by
+  // pts and deduped by pts. Unlike owned, these describe the PLAN itself ("get these
   // by 75 pts" is a statement about this ordering), so they live inside the
   // build payload/slots/share codes, not a separate global key. Anchored to
   // a point total rather than a list position or step reference on purpose -
@@ -163,30 +163,54 @@ function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
 // MAX_TOTAL_POINTS above).
 const MAX_WAYPOINTS = 200;
 
+// Curated palette rather than a free color picker - a handful of
+// distinguishable, pre-tuned-for-the-dark-theme options is enough to color
+// code a build's steps, and keeps every colored segment/swatch/divider
+// dot readable without needing per-color contrast checking against
+// arbitrary user-chosen hex values. key is what's actually stored on a
+// waypoint and round-tripped through save/export; hex is only for the
+// swatch-picker UI (render.js) - the segment/divider tints themselves are
+// plain CSS classes keyed off it (styles.css).
+export const WAYPOINT_COLORS = [
+  { key: "red", hex: "#d94c4c" },
+  { key: "orange", hex: "#d98a3d" },
+  { key: "yellow", hex: "#d9c23d" },
+  { key: "green", hex: "#4c8c52" },
+  { key: "teal", hex: "#3da6a0" },
+  { key: "blue", hex: "#4c7fd9" },
+  { key: "purple", hex: "#9c4cd9" }
+];
+const WAYPOINT_COLOR_KEYS = new Set(WAYPOINT_COLORS.map((c) => c.key));
+
 // Waypoints don't reference any AA identity (unlike ranks/purchaseOrder), so
 // there's no name-key resolution here - just validating/clamping untrusted
 // input from localStorage, a pasted build code, or a share link into the
-// { pts, label } shape state.waypoints actually uses. Accepts either that
-// verbose shape or the compact [pts, label] pair exportImport.js's `w` field
-// uses, so this one function can sanitize both sources. Duplicate pts values
-// collapse to the last one seen (an explicit re-set should win over an
-// earlier stale entry, not silently create two markers at the same total).
+// { pts, label, color } shape state.waypoints actually uses. Accepts either
+// that verbose shape or the compact [pts, label, color] triple
+// exportImport.js's `w` field uses, so this one function can sanitize both
+// sources. Duplicate pts values collapse to the last one seen (an explicit
+// re-set should win over an earlier stale entry, not silently create two
+// markers at the same total). An unrecognized color (a stale/hand-edited
+// value, or a future palette entry an older client doesn't know) degrades
+// to no color rather than being kept as an opaque string render.js would
+// have no matching CSS class for.
 export function sanitizeWaypoints(list) {
   if (!Array.isArray(list)) return [];
   const byPts = new Map();
   list.forEach((entry) => {
-    let rawPts, rawLabel;
-    if (Array.isArray(entry)) [rawPts, rawLabel] = entry;
-    else if (entry && typeof entry === "object") { rawPts = entry.pts; rawLabel = entry.label; }
+    let rawPts, rawLabel, rawColor;
+    if (Array.isArray(entry)) [rawPts, rawLabel, rawColor] = entry;
+    else if (entry && typeof entry === "object") { rawPts = entry.pts; rawLabel = entry.label; rawColor = entry.color; }
     else return;
     const pts = parseInt(rawPts, 10);
     if (!Number.isFinite(pts) || pts < 0) return;
     const clamped = Math.min(pts, MAX_TOTAL_POINTS);
     const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim().slice(0, 60) : null;
-    byPts.set(clamped, label);
+    const color = typeof rawColor === "string" && WAYPOINT_COLOR_KEYS.has(rawColor) ? rawColor : null;
+    byPts.set(clamped, { label, color });
   });
   return Array.from(byPts.entries())
-    .map(([pts, label]) => ({ pts, label }))
+    .map(([pts, { label, color }]) => ({ pts, label, color }))
     .sort((a, b) => a.pts - b.pts)
     .slice(0, MAX_WAYPOINTS);
 }

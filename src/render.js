@@ -1,6 +1,6 @@
 // All DOM rendering. Reads from `state` and the logic layer, writes to `el.*`.
 
-import { state, AA_CATEGORY_KEYS, CLASS_SLOT_KEYS, LAST_SEEN_VERSION_KEY } from "./state.js";
+import { state, AA_CATEGORY_KEYS, CLASS_SLOT_KEYS, LAST_SEEN_VERSION_KEY, WAYPOINT_COLORS } from "./state.js";
 import { USER_CHANGELOG } from "./changelogData.js";
 import { el } from "./dom.js";
 import {
@@ -360,13 +360,14 @@ export function renderSummary() {
 const expandedSteps = new Set();
 function expandKey(s) { return `${s.category || ""}:${s.idx}:${s.stepRank}`; }
 
-// Which waypoint's segment is currently highlighted, by its pts value (pts
-// is unique per waypoint - see sanitizeWaypoints' dedup). Same spirit as
-// expandedSteps: purely transient UI selection, not persisted, and never
-// touches lastMutation - "swapping" between waypoints is just changing what
-// you're looking at, not a plan mutation. Cleared automatically by
-// renderWaypointChips if the selected waypoint was removed out from under it.
-let selectedWaypointPts = null;
+// Waypoint add/edit modal state - which waypoint (by pts, unique per
+// sanitizeWaypoints' dedup) is being edited, or null when the modal is
+// adding a new one. modalSelectedColor tracks the in-progress swatch pick
+// while the modal is open, applied on Save. Both purely transient UI state,
+// same spirit as expandedSteps - never touches lastMutation, since editing
+// a waypoint is plan annotation, not a plan mutation.
+let editingWaypointPts = null;
+let modalSelectedColor = null;
 
 // Index (into state.purchaseOrder) of the row currently being dragged, or null
 // when no drag is in progress. Module-level since dragstart/dragover/drop fire
@@ -449,59 +450,96 @@ function dragWouldIntroduceWarn(toIndex) {
 }
 
 // Renders the waypoint chip row - one pill per state.waypoints entry
-// (already sorted ascending by pts), clicking the label toggles it as the
-// selected/highlighted segment (clicking the active one deselects, matching
-// "swapping" being a single-select action), the &times; removes it outright.
-// Called from renderProgression, but unconditionally - see its own comment
-// for why this can't wait behind the empty-progression check.
+// (already sorted ascending by pts), with a color dot if one's assigned.
+// Clicking the label opens the edit modal for that waypoint; the &times;
+// removes it directly, without opening anything, for a fast delete. Called
+// from renderProgression, but unconditionally - see its own comment for why
+// this can't wait behind the empty-progression check.
 function renderWaypointChips() {
-  if (selectedWaypointPts !== null && !state.waypoints.some((w) => w.pts === selectedWaypointPts)) {
-    selectedWaypointPts = null;
-  }
   if (!state.waypoints.length) {
     el.waypointChips.innerHTML = "";
     return;
   }
   el.waypointChips.innerHTML = state.waypoints.map((w) => {
-    const active = w.pts === selectedWaypointPts;
+    const dot = w.color ? `<span class="color-dot color-${w.color}"></span>` : "";
     const labelText = w.label ? `${w.pts} pts &middot; ${escapeHtml(w.label)}` : `${w.pts} pts`;
-    return `<span class="waypoint-chip${active ? " active" : ""}" data-pts="${w.pts}">
-      <span class="chip-label" data-pts="${w.pts}">${labelText}</span>
+    return `<span class="waypoint-chip" data-pts="${w.pts}">
+      <span class="chip-label" data-pts="${w.pts}">${dot}${labelText}</span>
       <button class="chip-remove" data-pts="${w.pts}" title="Remove this waypoint" aria-label="Remove waypoint">&times;</button>
     </span>`;
   }).join("");
   Array.from(el.waypointChips.querySelectorAll(".chip-label")).forEach((labelEl) => {
     labelEl.addEventListener("click", () => {
-      const pts = parseInt(labelEl.getAttribute("data-pts"), 10);
-      selectedWaypointPts = selectedWaypointPts === pts ? null : pts;
-      renderProgression();
+      openWaypointModal(parseInt(labelEl.getAttribute("data-pts"), 10));
     });
   });
   Array.from(el.waypointChips.querySelectorAll(".chip-remove")).forEach((btn) => {
     btn.addEventListener("click", () => {
-      const pts = parseInt(btn.getAttribute("data-pts"), 10);
-      removeWaypoint(pts);
-      if (selectedWaypointPts === pts) selectedWaypointPts = null;
+      removeWaypoint(parseInt(btn.getAttribute("data-pts"), 10));
       renderProgression();
     });
   });
 }
 
-// Prompts for a point total (and optional name) and adds/replaces the
-// waypoint at that total. Native prompt() rather than a modal - two short
-// fields, same lightweight-dialog spirit as confirmReplaceCurrentBuild's
-// save-first flow elsewhere in this app, not worth a whole form for.
-export function handleAddWaypoint() {
-  const raw = prompt("Waypoint at how many points?", String(spentPoints()));
-  if (raw === null) return;
-  const pts = parseInt(raw.trim(), 10);
+// Populates the color swatch picker inside the waypoint modal - a "none"
+// swatch plus one per WAYPOINT_COLORS entry, with modalSelectedColor's match
+// shown active. Re-rendered on every pick so the active state updates
+// without needing to touch the rest of the modal.
+function renderColorSwatches() {
+  const noneSwatch = `<button type="button" class="color-swatch none${modalSelectedColor === null ? " active" : ""}" data-color="" title="No color" aria-label="No color"></button>`;
+  const colorSwatches = WAYPOINT_COLORS.map((c) =>
+    `<button type="button" class="color-swatch color-${c.key}${modalSelectedColor === c.key ? " active" : ""}" data-color="${c.key}" title="${c.key}" aria-label="${c.key}"></button>`
+  ).join("");
+  el.waypointColorSwatches.innerHTML = noneSwatch + colorSwatches;
+  Array.from(el.waypointColorSwatches.querySelectorAll(".color-swatch")).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      modalSelectedColor = btn.getAttribute("data-color") || null;
+      renderColorSwatches();
+    });
+  });
+}
+
+// Opens the add/edit modal. existingPts identifies which waypoint to edit
+// (by pts, its stable identity), or null to add a new one prefilled with
+// the current spent total.
+export function openWaypointModal(existingPts = null) {
+  const existing = existingPts !== null ? state.waypoints.find((w) => w.pts === existingPts) : null;
+  editingWaypointPts = existingPts;
+  modalSelectedColor = existing ? existing.color : null;
+  el.waypointModalTitle.textContent = existing ? "Edit Waypoint" : "Add Waypoint";
+  el.waypointPtsInput.value = String(existing ? existing.pts : spentPoints());
+  el.waypointLabelInput.value = existing && existing.label ? existing.label : "";
+  el.deleteWaypointBtn.classList.toggle("hidden", !existing);
+  renderColorSwatches();
+  el.waypointModal.classList.remove("hidden");
+  el.waypointPtsInput.focus();
+  el.waypointPtsInput.select();
+}
+
+export function closeWaypointModal() {
+  el.waypointModal.classList.add("hidden");
+}
+
+export function handleSaveWaypoint() {
+  const pts = parseInt(el.waypointPtsInput.value.trim(), 10);
   if (!Number.isFinite(pts) || pts < 0) {
     showToast("Enter a point total of 0 or more.");
     return;
   }
-  const label = prompt("Name this waypoint (optional):", "");
-  if (!addOrUpdateWaypoint(pts, label)) return;
-  selectedWaypointPts = pts;
+  // Editing can change the point total itself - that's a different identity
+  // (waypoints are keyed by pts), so the old entry has to be explicitly
+  // dropped first or both would coexist instead of one replacing the other.
+  if (editingWaypointPts !== null && editingWaypointPts !== pts) {
+    removeWaypoint(editingWaypointPts);
+  }
+  addOrUpdateWaypoint(pts, el.waypointLabelInput.value, modalSelectedColor);
+  closeWaypointModal();
+  renderProgression();
+}
+
+export function handleDeleteWaypoint() {
+  if (editingWaypointPts !== null) removeWaypoint(editingWaypointPts);
+  closeWaypointModal();
   renderProgression();
 }
 
@@ -530,35 +568,28 @@ export function renderProgression() {
   const togoPts = spentPoints() - ownedPts;
   el.ownedSummary.textContent = `${ownedPts} pt${ownedPts === 1 ? "" : "s"} owned, ${togoPts} to go`;
 
-  // Bounds of the currently-selected waypoint's segment, if any - the
-  // previous waypoint's pts (exclusive) through the selected one's (
-  // inclusive). -1 as the lower bound when there's no previous waypoint,
-  // since every real cumulative is >= 0. A selection whose waypoint no
-  // longer exists (just removed) is stale - drop it rather than highlight
-  // nothing while still claiming something's selected.
-  let segBounds = null;
-  if (selectedWaypointPts !== null) {
-    const idx = state.waypoints.findIndex((w) => w.pts === selectedWaypointPts);
-    if (idx >= 0) segBounds = { lo: idx > 0 ? state.waypoints[idx - 1].pts : -1, hi: selectedWaypointPts };
-    else selectedWaypointPts = null;
-  }
-
+  // computeProgressionTimeline tags each step with segmentColor (the color
+  // of the waypoint whose range it falls under, if any) - every colored
+  // waypoint's segment renders simultaneously, not just one selected at a
+  // time, since the point of color-coding is seeing the whole plan's zones
+  // at a glance.
   const timeline = computeProgressionTimeline(steps);
   const htmlParts = timeline.map((entry) => {
     if (entry.type === "divider") {
+      const dot = entry.color ? `<span class="color-dot color-${entry.color}"></span>` : "";
       const labelText = entry.label ? `${escapeHtml(entry.label)} &middot; ` : "";
-      return `<div class="progression-divider${entry.unreached ? " unreached" : ""}">
+      return `<div class="progression-divider${entry.unreached ? " unreached" : ""}" data-pts="${entry.pts}" title="Click to edit this waypoint">
         <span class="divider-line"></span>
-        <span class="divider-label">${labelText}${entry.pts} pts${entry.unreached ? " &middot; not reached yet" : ""}</span>
+        ${dot}<span class="divider-label">${labelText}${entry.pts} pts${entry.unreached ? " &middot; not reached yet" : ""}</span>
         <span class="divider-line"></span>
       </div>`;
     }
     const s = entry;
-    const inSeg = !!segBounds && s.cumulative > segBounds.lo && s.cumulative <= segBounds.hi;
     const canExpand = !!(s.aa && s.stepRank < s.aa.ranks);
     const key = expandKey(s);
     const expanded = canExpand && expandedSteps.has(key);
-    const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}${inSeg ? " segment-highlight" : ""}" draggable="true" data-index="${s.index}">
+    const segClass = s.segmentColor ? ` segment-color-${s.segmentColor}` : "";
+    const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}${segClass}" draggable="true" data-index="${s.index}">
       <span class="drag-handle" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
       <span class="step-num">${s.index + 1}</span>
       <span class="step-info">
@@ -712,6 +743,9 @@ export function renderProgression() {
   // the very start" instead, via the first row's own top-half indicator.
   Array.from(el.progressionContent.querySelectorAll(".progression-divider")).forEach((divEl) => {
     const ownerRow = findPrecedingRow(divEl);
+    divEl.addEventListener("click", () => {
+      openWaypointModal(parseInt(divEl.getAttribute("data-pts"), 10));
+    });
     divEl.addEventListener("dragover", (e) => {
       if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
       e.preventDefault();

@@ -761,15 +761,14 @@ main {
   color: var(--text-dim);
 }
 
-.chip-label { cursor: pointer; }
+.chip-label {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 
 .waypoint-chip:hover { border-color: var(--accent); }
-
-.waypoint-chip.active {
-  border-color: var(--accent-bright);
-  background: rgba(217, 76, 76, 0.15);
-  color: var(--accent-bright);
-}
 
 .chip-remove {
   border: none;
@@ -797,7 +796,10 @@ main {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  cursor: pointer;
 }
+
+.progression-divider:hover .divider-label { color: var(--text); }
 
 .progression-divider.unreached { opacity: 0.55; }
 
@@ -809,12 +811,85 @@ main {
 
 .divider-label { flex-shrink: 0; white-space: nowrap; }
 
+/* Small solid dot - the chip/divider's color indicator. Reused (with the
+   swatch-picker's own sizing) for the modal's color buttons below. */
+.color-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.color-dot.color-red, .color-swatch.color-red { background: #d94c4c; }
+.color-dot.color-orange, .color-swatch.color-orange { background: #d98a3d; }
+.color-dot.color-yellow, .color-swatch.color-yellow { background: #d9c23d; }
+.color-dot.color-green, .color-swatch.color-green { background: #4c8c52; }
+.color-dot.color-teal, .color-swatch.color-teal { background: #3da6a0; }
+.color-dot.color-blue, .color-swatch.color-blue { background: #4c7fd9; }
+.color-dot.color-purple, .color-swatch.color-purple { background: #9c4cd9; }
+
 /* Background tint, not opacity or text color - composes with .inactive,
    .dragging, .prereq-warn-row, and owned's strikethrough with no arithmetic
    (opacity multiplies across states, e.g. the .dragging/.prereq-warn-row
    combo rule a few lines down exists precisely because it doesn't; a plain
-   background paints underneath all of that for free). */
-.progression-row.segment-highlight { background: rgba(217, 76, 76, 0.08); }
+   background paints underneath all of that for free). Every colored
+   waypoint's segment can be tinted at once - color coding is meant to show
+   the whole plan's zones simultaneously, not one at a time - so these are
+   independent per-color rules, not a single "selected" state. */
+.progression-row.segment-color-red { background: rgba(217, 76, 76, 0.10); }
+.progression-row.segment-color-orange { background: rgba(217, 138, 61, 0.12); }
+.progression-row.segment-color-yellow { background: rgba(217, 194, 61, 0.12); }
+.progression-row.segment-color-green { background: rgba(76, 140, 82, 0.12); }
+.progression-row.segment-color-teal { background: rgba(61, 166, 160, 0.12); }
+.progression-row.segment-color-blue { background: rgba(76, 127, 217, 0.12); }
+.progression-row.segment-color-purple { background: rgba(156, 76, 217, 0.12); }
+
+/* ---------- Waypoint modal ---------- */
+.waypoint-modal-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.color-swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.color-swatch.none {
+  background: var(--bg-panel-2);
+  border-color: var(--border-light);
+  position: relative;
+}
+
+.color-swatch.none::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 15%;
+  right: 15%;
+  height: 1px;
+  background: var(--text-faint);
+  transform: rotate(45deg);
+}
+
+.color-swatch:hover { border-color: var(--text-dim); }
+
+.color-swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 3px var(--text); }
+
+#deleteWaypointBtn:not(.hidden) { margin-right: auto; }
 
 .progression-row {
   display: flex;

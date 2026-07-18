@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>EverQuest Legends - AA Calculator</title>
-<link rel="stylesheet" href="styles.css?v=de89c0d6" />
+<link rel="stylesheet" href="styles.css?v=ef5fc73e" />
 </head>
 <body>
 
@@ -184,7 +184,33 @@
   </div>
 </div>
 
-<script src="data.js?v=de89c0d6"></script>
-<script src="app.js?v=de89c0d6"></script>
+<div id="waypointModal" class="modal-overlay hidden">
+  <div class="modal">
+    <h2 id="waypointModalTitle">Add Waypoint</h2>
+    <p class="modal-hint">Mark a point total worth returning to &mdash; it shows up as a labeled divider right where your training order crosses it. Give it a color to have that stretch of steps stand out at a glance.</p>
+    <div class="waypoint-modal-fields">
+      <div class="control">
+        <label for="waypointPtsInput">Point total</label>
+        <input type="number" id="waypointPtsInput" min="0" />
+      </div>
+      <div class="control">
+        <label for="waypointLabelInput">Name (optional)</label>
+        <input type="text" id="waypointLabelInput" maxlength="60" placeholder="e.g. Level 20" />
+      </div>
+      <div class="control">
+        <label>Color (optional)</label>
+        <div class="color-swatches" id="waypointColorSwatches"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger hidden" id="deleteWaypointBtn">Delete</button>
+      <button class="btn" id="cancelWaypointBtn">Cancel</button>
+      <button class="btn primary" id="saveWaypointBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="data.js?v=ef5fc73e"></script>
+<script src="app.js?v=ef5fc73e"></script>
 </body>
 </html>

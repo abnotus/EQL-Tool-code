@@ -45,6 +45,14 @@ export function cacheDom() {
   el.clearOwnedBtn = document.getElementById("clearOwnedBtn");
   el.addWaypointBtn = document.getElementById("addWaypointBtn");
   el.waypointChips = document.getElementById("waypointChips");
+  el.waypointModal = document.getElementById("waypointModal");
+  el.waypointModalTitle = document.getElementById("waypointModalTitle");
+  el.waypointPtsInput = document.getElementById("waypointPtsInput");
+  el.waypointLabelInput = document.getElementById("waypointLabelInput");
+  el.waypointColorSwatches = document.getElementById("waypointColorSwatches");
+  el.deleteWaypointBtn = document.getElementById("deleteWaypointBtn");
+  el.cancelWaypointBtn = document.getElementById("cancelWaypointBtn");
+  el.saveWaypointBtn = document.getElementById("saveWaypointBtn");
   el.treeWrap = document.getElementById("treeWrap");
   el.sidePanel = document.getElementById("sidePanel");
   el.globalSearch = document.getElementById("globalSearch");

@@ -7,7 +7,7 @@ export const USER_CHANGELOG = [
     version: "1.5.0",
     date: "2026-07-18",
     items: [
-      "New: Waypoints on the Progression tab — mark a point total worth returning to (with an optional name, like \"Level 20\" or \"Turn-in gear\") and it shows up as a labeled divider right where your training order crosses it. Click a waypoint's chip to highlight everything you'll have by then; click it again to clear the highlight.",
+      "New: Waypoints on the Progression tab — mark a point total worth returning to (with an optional name, like \"Level 20\" or \"Turn-in gear\") and it shows up as a labeled divider right where your training order crosses it. Give it a color to have that stretch of steps stand out at a glance — every colored waypoint's stretch shows at once, so you can color-code the whole plan into zones instead of looking at one at a time. Click a chip or its divider to edit it, including changing its color or point total later.",
       "Waypoints are anchored to a point total, not a position in the list, so they hold up under reordering, undo, and Reset Build without needing to be redone — Reset Build keeps them the same way it keeps owned progress. They travel with the plan: included in named Builds and share links/export codes."
     ]
   },

@@ -264,7 +264,7 @@ const USER_CHANGELOG = [
 version: "1.5.0",
 date: "2026-07-18",
 items: [
-"New: Waypoints on the Progression tab — mark a point total worth returning to (with an optional name, like \"Level 20\" or \"Turn-in gear\") and it shows up as a labeled divider right where your training order crosses it. Click a waypoint's chip to highlight everything you'll have by then; click it again to clear the highlight.",
+"New: Waypoints on the Progression tab — mark a point total worth returning to (with an optional name, like \"Level 20\" or \"Turn-in gear\") and it shows up as a labeled divider right where your training order crosses it. Give it a color to have that stretch of steps stand out at a glance — every colored waypoint's stretch shows at once, so you can color-code the whole plan into zones instead of looking at one at a time. Click a chip or its divider to edit it, including changing its color or point total later.",
 "Waypoints are anchored to a point total, not a position in the list, so they hold up under reordering, undo, and Reset Build without needing to be redone — Reset Build keeps them the same way it keeps owned progress. They travel with the plan: included in named Builds and share links/export codes."
 ]
 },
@@ -423,22 +423,33 @@ return idx >= 0 ? { scope: e.scope, className: e.className || null, idx } : null
 }).filter(Boolean);
 }
 const MAX_WAYPOINTS = 200;
+const WAYPOINT_COLORS = [
+{ key: "red", hex: "#d94c4c" },
+{ key: "orange", hex: "#d98a3d" },
+{ key: "yellow", hex: "#d9c23d" },
+{ key: "green", hex: "#4c8c52" },
+{ key: "teal", hex: "#3da6a0" },
+{ key: "blue", hex: "#4c7fd9" },
+{ key: "purple", hex: "#9c4cd9" }
+];
+const WAYPOINT_COLOR_KEYS = new Set(WAYPOINT_COLORS.map((c) => c.key));
 function sanitizeWaypoints(list) {
 if (!Array.isArray(list)) return [];
 const byPts = new Map();
 list.forEach((entry) => {
-let rawPts, rawLabel;
-if (Array.isArray(entry)) [rawPts, rawLabel] = entry;
-else if (entry && typeof entry === "object") { rawPts = entry.pts; rawLabel = entry.label; }
+let rawPts, rawLabel, rawColor;
+if (Array.isArray(entry)) [rawPts, rawLabel, rawColor] = entry;
+else if (entry && typeof entry === "object") { rawPts = entry.pts; rawLabel = entry.label; rawColor = entry.color; }
 else return;
 const pts = parseInt(rawPts, 10);
 if (!Number.isFinite(pts) || pts < 0) return;
 const clamped = Math.min(pts, MAX_TOTAL_POINTS);
 const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim().slice(0, 60) : null;
-byPts.set(clamped, label);
+const color = typeof rawColor === "string" && WAYPOINT_COLOR_KEYS.has(rawColor) ? rawColor : null;
+byPts.set(clamped, { label, color });
 });
 return Array.from(byPts.entries())
-.map(([pts, label]) => ({ pts, label }))
+.map(([pts, { label, color }]) => ({ pts, label, color }))
 .sort((a, b) => a.pts - b.pts)
 .slice(0, MAX_WAYPOINTS);
 }
@@ -668,11 +679,11 @@ state.owned = { general: {}, archetype: {}, special: {}, classes: {} };
 lastMutation = null;
 saveOwned();
 }
-function addOrUpdateWaypoint(pts, label) {
+function addOrUpdateWaypoint(pts, label, color) {
 const n = parseInt(pts, 10);
 if (!Number.isFinite(n) || n < 0) return false;
 const merged = state.waypoints.filter((w) => w.pts !== n);
-merged.push({ pts: n, label });
+merged.push({ pts: n, label, color });
 state.waypoints = sanitizeWaypoints(merged);
 saveLocal();
 return true;
@@ -1151,14 +1162,15 @@ let wi = 0;
 let lastCumulative = 0;
 steps.forEach((s) => {
 while (wi < wps.length && wps[wi].pts < s.cumulative) {
-timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: false });
+timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, color: wps[wi].color, unreached: false });
 wi++;
 }
-timeline.push({ type: "step", ...s });
+const owner = wi < wps.length ? wps[wi] : null;
+timeline.push({ type: "step", ...s, segmentColor: owner ? owner.color : null });
 lastCumulative = s.cumulative;
 });
 while (wi < wps.length) {
-timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: wps[wi].pts > lastCumulative });
+timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, color: wps[wi].color, unreached: wps[wi].pts > lastCumulative });
 wi++;
 }
 return timeline;
@@ -1354,6 +1366,14 @@ el.ownedSummary = document.getElementById("ownedSummary");
 el.clearOwnedBtn = document.getElementById("clearOwnedBtn");
 el.addWaypointBtn = document.getElementById("addWaypointBtn");
 el.waypointChips = document.getElementById("waypointChips");
+el.waypointModal = document.getElementById("waypointModal");
+el.waypointModalTitle = document.getElementById("waypointModalTitle");
+el.waypointPtsInput = document.getElementById("waypointPtsInput");
+el.waypointLabelInput = document.getElementById("waypointLabelInput");
+el.waypointColorSwatches = document.getElementById("waypointColorSwatches");
+el.deleteWaypointBtn = document.getElementById("deleteWaypointBtn");
+el.cancelWaypointBtn = document.getElementById("cancelWaypointBtn");
+el.saveWaypointBtn = document.getElementById("saveWaypointBtn");
 el.treeWrap = document.getElementById("treeWrap");
 el.sidePanel = document.getElementById("sidePanel");
 el.globalSearch = document.getElementById("globalSearch");
@@ -1673,7 +1693,8 @@ el.summaryContent.innerHTML = anyPicked ? html : '<div class="empty">No AAs sele
 }
 const expandedSteps = new Set();
 function expandKey(s) { return `${s.category || ""}:${s.idx}:${s.stepRank}`; }
-let selectedWaypointPts = null;
+let editingWaypointPts = null;
+let modalSelectedColor = null;
 const PROGRESSION_DRAG_TYPE = "application/x-aacalc-progression-step";
 let dragSrcIndex = null;
 let dragBaselineWarnCount = 0;
@@ -1702,48 +1723,75 @@ if (hypoSteps[insertAt].prereqWarn) return true;
 return countPrereqWarns(hypoSteps) > dragBaselineWarnCount;
 }
 function renderWaypointChips() {
-if (selectedWaypointPts !== null && !state.waypoints.some((w) => w.pts === selectedWaypointPts)) {
-selectedWaypointPts = null;
-}
 if (!state.waypoints.length) {
 el.waypointChips.innerHTML = "";
 return;
 }
 el.waypointChips.innerHTML = state.waypoints.map((w) => {
-const active = w.pts === selectedWaypointPts;
+const dot = w.color ? `<span class="color-dot color-${w.color}"></span>` : "";
 const labelText = w.label ? `${w.pts} pts &middot; ${escapeHtml(w.label)}` : `${w.pts} pts`;
-return `<span class="waypoint-chip${active ? " active" : ""}" data-pts="${w.pts}">
-      <span class="chip-label" data-pts="${w.pts}">${labelText}</span>
+return `<span class="waypoint-chip" data-pts="${w.pts}">
+      <span class="chip-label" data-pts="${w.pts}">${dot}${labelText}</span>
       <button class="chip-remove" data-pts="${w.pts}" title="Remove this waypoint" aria-label="Remove waypoint">&times;</button>
     </span>`;
 }).join("");
 Array.from(el.waypointChips.querySelectorAll(".chip-label")).forEach((labelEl) => {
 labelEl.addEventListener("click", () => {
-const pts = parseInt(labelEl.getAttribute("data-pts"), 10);
-selectedWaypointPts = selectedWaypointPts === pts ? null : pts;
-renderProgression();
+openWaypointModal(parseInt(labelEl.getAttribute("data-pts"), 10));
 });
 });
 Array.from(el.waypointChips.querySelectorAll(".chip-remove")).forEach((btn) => {
 btn.addEventListener("click", () => {
-const pts = parseInt(btn.getAttribute("data-pts"), 10);
-removeWaypoint(pts);
-if (selectedWaypointPts === pts) selectedWaypointPts = null;
+removeWaypoint(parseInt(btn.getAttribute("data-pts"), 10));
 renderProgression();
 });
 });
 }
-function handleAddWaypoint() {
-const raw = prompt("Waypoint at how many points?", String(spentPoints()));
-if (raw === null) return;
-const pts = parseInt(raw.trim(), 10);
+function renderColorSwatches() {
+const noneSwatch = `<button type="button" class="color-swatch none${modalSelectedColor === null ? " active" : ""}" data-color="" title="No color" aria-label="No color"></button>`;
+const colorSwatches = WAYPOINT_COLORS.map((c) =>
+`<button type="button" class="color-swatch color-${c.key}${modalSelectedColor === c.key ? " active" : ""}" data-color="${c.key}" title="${c.key}" aria-label="${c.key}"></button>`
+).join("");
+el.waypointColorSwatches.innerHTML = noneSwatch + colorSwatches;
+Array.from(el.waypointColorSwatches.querySelectorAll(".color-swatch")).forEach((btn) => {
+btn.addEventListener("click", () => {
+modalSelectedColor = btn.getAttribute("data-color") || null;
+renderColorSwatches();
+});
+});
+}
+function openWaypointModal(existingPts = null) {
+const existing = existingPts !== null ? state.waypoints.find((w) => w.pts === existingPts) : null;
+editingWaypointPts = existingPts;
+modalSelectedColor = existing ? existing.color : null;
+el.waypointModalTitle.textContent = existing ? "Edit Waypoint" : "Add Waypoint";
+el.waypointPtsInput.value = String(existing ? existing.pts : spentPoints());
+el.waypointLabelInput.value = existing && existing.label ? existing.label : "";
+el.deleteWaypointBtn.classList.toggle("hidden", !existing);
+renderColorSwatches();
+el.waypointModal.classList.remove("hidden");
+el.waypointPtsInput.focus();
+el.waypointPtsInput.select();
+}
+function closeWaypointModal() {
+el.waypointModal.classList.add("hidden");
+}
+function handleSaveWaypoint() {
+const pts = parseInt(el.waypointPtsInput.value.trim(), 10);
 if (!Number.isFinite(pts) || pts < 0) {
 showToast("Enter a point total of 0 or more.");
 return;
 }
-const label = prompt("Name this waypoint (optional):", "");
-if (!addOrUpdateWaypoint(pts, label)) return;
-selectedWaypointPts = pts;
+if (editingWaypointPts !== null && editingWaypointPts !== pts) {
+removeWaypoint(editingWaypointPts);
+}
+addOrUpdateWaypoint(pts, el.waypointLabelInput.value, modalSelectedColor);
+closeWaypointModal();
+renderProgression();
+}
+function handleDeleteWaypoint() {
+if (editingWaypointPts !== null) removeWaypoint(editingWaypointPts);
+closeWaypointModal();
 renderProgression();
 }
 function renderProgression() {
@@ -1759,28 +1807,23 @@ const steps = computeProgressionSteps();
 const ownedPts = steps.reduce((sum, s) => sum + (s.owned ? s.stepCost : 0), 0);
 const togoPts = spentPoints() - ownedPts;
 el.ownedSummary.textContent = `${ownedPts} pt${ownedPts === 1 ? "" : "s"} owned, ${togoPts} to go`;
-let segBounds = null;
-if (selectedWaypointPts !== null) {
-const idx = state.waypoints.findIndex((w) => w.pts === selectedWaypointPts);
-if (idx >= 0) segBounds = { lo: idx > 0 ? state.waypoints[idx - 1].pts : -1, hi: selectedWaypointPts };
-else selectedWaypointPts = null;
-}
 const timeline = computeProgressionTimeline(steps);
 const htmlParts = timeline.map((entry) => {
 if (entry.type === "divider") {
+const dot = entry.color ? `<span class="color-dot color-${entry.color}"></span>` : "";
 const labelText = entry.label ? `${escapeHtml(entry.label)} &middot; ` : "";
-return `<div class="progression-divider${entry.unreached ? " unreached" : ""}">
+return `<div class="progression-divider${entry.unreached ? " unreached" : ""}" data-pts="${entry.pts}" title="Click to edit this waypoint">
         <span class="divider-line"></span>
-        <span class="divider-label">${labelText}${entry.pts} pts${entry.unreached ? " &middot; not reached yet" : ""}</span>
+        ${dot}<span class="divider-label">${labelText}${entry.pts} pts${entry.unreached ? " &middot; not reached yet" : ""}</span>
         <span class="divider-line"></span>
       </div>`;
 }
 const s = entry;
-const inSeg = !!segBounds && s.cumulative > segBounds.lo && s.cumulative <= segBounds.hi;
 const canExpand = !!(s.aa && s.stepRank < s.aa.ranks);
 const key = expandKey(s);
 const expanded = canExpand && expandedSteps.has(key);
-const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}${inSeg ? " segment-highlight" : ""}" draggable="true" data-index="${s.index}">
+const segClass = s.segmentColor ? ` segment-color-${s.segmentColor}` : "";
+const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}${segClass}" draggable="true" data-index="${s.index}">
       <span class="drag-handle" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
       <span class="step-num">${s.index + 1}</span>
       <span class="step-info">
@@ -1913,6 +1956,9 @@ dragSrcIndex = null;
 });
 Array.from(el.progressionContent.querySelectorAll(".progression-divider")).forEach((divEl) => {
 const ownerRow = findPrecedingRow(divEl);
+divEl.addEventListener("click", () => {
+openWaypointModal(parseInt(divEl.getAttribute("data-pts"), 10));
+});
 divEl.addEventListener("dragover", (e) => {
 if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
 e.preventDefault();
@@ -2157,7 +2203,7 @@ if (includeOwned) {
 const compactOwned = compactRanksFor(state.owned);
 if (compactOwned.length) payload.o = compactOwned;
 }
-if (state.waypoints.length) payload.w = state.waypoints.map((w) => [w.pts, w.label]);
+if (state.waypoints.length) payload.w = state.waypoints.map((w) => [w.pts, w.label, w.color]);
 return payload;
 }
 function expandCompactRanks(list) {
@@ -2500,6 +2546,7 @@ if (!el.importModal.classList.contains("hidden")) closeImportModal();
 if (!el.changelogModal.classList.contains("hidden")) closeChangelogModal();
 if (!el.buildsModal.classList.contains("hidden")) closeBuildsModal();
 if (!el.resetModal.classList.contains("hidden")) closeResetModal();
+if (!el.waypointModal.classList.contains("hidden")) closeWaypointModal();
 });
 el.versionTag.addEventListener("click", openChangelogModal);
 el.closeChangelogBtn.addEventListener("click", closeChangelogModal);
@@ -2539,7 +2586,17 @@ clearAllOwned();
 renderProgression();
 showToast("Owned progress cleared");
 });
-el.addWaypointBtn.addEventListener("click", handleAddWaypoint);
+el.addWaypointBtn.addEventListener("click", () => openWaypointModal());
+el.cancelWaypointBtn.addEventListener("click", closeWaypointModal);
+el.saveWaypointBtn.addEventListener("click", handleSaveWaypoint);
+el.deleteWaypointBtn.addEventListener("click", handleDeleteWaypoint);
+el.waypointModal.addEventListener("click", (e) => { if (e.target === el.waypointModal) closeWaypointModal(); });
+el.waypointLabelInput.addEventListener("keydown", (e) => {
+if (e.key === "Enter") handleSaveWaypoint();
+});
+el.waypointPtsInput.addEventListener("keydown", (e) => {
+if (e.key === "Enter") handleSaveWaypoint();
+});
 el.dismissBannerBtn.addEventListener("click", () => {
 el.disclaimerBanner.classList.add("hidden");
 try { localStorage.setItem(DISCLAIMER_DISMISSED_KEY, "1"); } catch (e) { /* storage unavailable, ignore */ }

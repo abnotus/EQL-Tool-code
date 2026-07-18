@@ -213,14 +213,14 @@ export function clearAllOwned() {
 // so adding/removing a waypoint never clobbers (or gets clobbered by) an
 // unrelated pending Undo Last. Returns false without changing anything if
 // pts isn't a valid non-negative number.
-export function addOrUpdateWaypoint(pts, label) {
+export function addOrUpdateWaypoint(pts, label, color) {
   const n = parseInt(pts, 10);
   if (!Number.isFinite(n) || n < 0) return false;
-  // sanitizeWaypoints does the actual clamping/label-cleaning/sorting/dedup
-  // (last entry for a given pts wins), so re-run the merged array through it
-  // rather than duplicating that logic here.
+  // sanitizeWaypoints does the actual clamping/label-cleaning/color-
+  // validating/sorting/dedup (last entry for a given pts wins), so re-run
+  // the merged array through it rather than duplicating that logic here.
   const merged = state.waypoints.filter((w) => w.pts !== n);
-  merged.push({ pts: n, label });
+  merged.push({ pts: n, label, color });
   state.waypoints = sanitizeWaypoints(merged);
   saveLocal();
   return true;
@@ -941,13 +941,24 @@ export function computeProgressionSteps(order = state.purchaseOrder) {
 }
 
 // Interleaves computeProgressionSteps' output with divider markers for each
-// waypoint, in cumulative order: { type: "step", ...s } for a real step,
-// { type: "divider", pts, label, unreached } where a waypoint's threshold
-// falls. A divider for waypoint W goes right after the last step whose
-// cumulative is <= W.pts and right before the first step whose cumulative
-// exceeds it (inclusive boundary - a step landing exactly on the threshold
-// counts as reaching it, not past it). state.waypoints is already sorted
-// ascending by pts, so this is a single merge pass, no re-sorting needed.
+// waypoint, in cumulative order: { type: "step", ...s, segmentColor } for a
+// real step, { type: "divider", pts, label, color, unreached } where a
+// waypoint's threshold falls. A divider for waypoint W goes right after the
+// last step whose cumulative is <= W.pts and right before the first step
+// whose cumulative exceeds it (inclusive boundary - a step landing exactly
+// on the threshold counts as reaching it, not past it). state.waypoints is
+// already sorted ascending by pts, so this is a single merge pass, no
+// re-sorting needed.
+//
+// segmentColor is the color of the waypoint a step falls under - the
+// smallest not-yet-flushed threshold that still contains it, which is
+// exactly wps[wi] at the point each step gets pushed (everything strictly
+// below the step's own cumulative was already flushed by the while loop
+// above it). null if there's no such waypoint (past every threshold, or
+// that waypoint has no color assigned) - the color-coding this enables is
+// simultaneous across every colored waypoint's segment, not a single
+// selected one, since the point is seeing the whole plan's zones at a
+// glance.
 //
 // A waypoint whose pts is never reached (every step's cumulative stays
 // below it - an aspirational marker, or simply an empty/small plan) gets
@@ -971,14 +982,15 @@ export function computeProgressionTimeline(steps) {
   let lastCumulative = 0;
   steps.forEach((s) => {
     while (wi < wps.length && wps[wi].pts < s.cumulative) {
-      timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: false });
+      timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, color: wps[wi].color, unreached: false });
       wi++;
     }
-    timeline.push({ type: "step", ...s });
+    const owner = wi < wps.length ? wps[wi] : null;
+    timeline.push({ type: "step", ...s, segmentColor: owner ? owner.color : null });
     lastCumulative = s.cumulative;
   });
   while (wi < wps.length) {
-    timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: wps[wi].pts > lastCumulative });
+    timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, color: wps[wi].color, unreached: wps[wi].pts > lastCumulative });
     wi++;
   }
   return timeline;
