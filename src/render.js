@@ -9,7 +9,7 @@ import {
   isDependedOn, attemptIncrement, attemptDecrement, countPicked, computeProgressionSteps,
   costNum, spentPoints, undoLastMutation, canUndo, moveEntry, setOwnedRank, performReset,
   aaMatchesQuery, countMatches, heldRankInvalidReason, findInvalidatedPicks, loadIssuesSuffix,
-  hasAnyOwned
+  hasAnyOwned, computeProgressionTimeline, addOrUpdateWaypoint, removeWaypoint
 } from "./logic.js";
 import {
   listBuilds, getActiveBuildId, loadBuild, renameBuild, deleteBuild,
@@ -360,6 +360,14 @@ export function renderSummary() {
 const expandedSteps = new Set();
 function expandKey(s) { return `${s.category || ""}:${s.idx}:${s.stepRank}`; }
 
+// Which waypoint's segment is currently highlighted, by its pts value (pts
+// is unique per waypoint - see sanitizeWaypoints' dedup). Same spirit as
+// expandedSteps: purely transient UI selection, not persisted, and never
+// touches lastMutation - "swapping" between waypoints is just changing what
+// you're looking at, not a plan mutation. Cleared automatically by
+// renderWaypointChips if the selected waypoint was removed out from under it.
+let selectedWaypointPts = null;
+
 // Index (into state.purchaseOrder) of the row currently being dragged, or null
 // when no drag is in progress. Module-level since dragstart/dragover/drop fire
 // on different row elements that get torn down and rebuilt on every render.
@@ -384,6 +392,20 @@ function clearDragOverMarks() {
   Array.from(el.progressionContent.querySelectorAll(".progression-row")).forEach((r) => {
     r.classList.remove("drag-over-top", "drag-over-bottom", "drag-warn");
   });
+}
+
+// Walks back through preceding siblings to the nearest actual
+// .progression-row, skipping over any run of divider rows and/or a
+// next-rank preview box in between - a divider can end up directly after
+// another divider (two waypoints falling in the same gap) or after an
+// expanded preview box (the step right before a waypoint boundary has its
+// preview open), neither of which is itself a valid "owner row". Returns
+// null if there's no row above at all (a divider whose threshold is below
+// the very first step's cumulative).
+function findPrecedingRow(fromEl) {
+  let sib = fromEl.previousElementSibling;
+  while (sib && !sib.classList.contains("progression-row")) sib = sib.previousElementSibling;
+  return sib;
 }
 
 function countPrereqWarns(steps) {
@@ -426,6 +448,63 @@ function dragWouldIntroduceWarn(toIndex) {
   return countPrereqWarns(hypoSteps) > dragBaselineWarnCount;
 }
 
+// Renders the waypoint chip row - one pill per state.waypoints entry
+// (already sorted ascending by pts), clicking the label toggles it as the
+// selected/highlighted segment (clicking the active one deselects, matching
+// "swapping" being a single-select action), the &times; removes it outright.
+// Called from renderProgression, but unconditionally - see its own comment
+// for why this can't wait behind the empty-progression check.
+function renderWaypointChips() {
+  if (selectedWaypointPts !== null && !state.waypoints.some((w) => w.pts === selectedWaypointPts)) {
+    selectedWaypointPts = null;
+  }
+  if (!state.waypoints.length) {
+    el.waypointChips.innerHTML = "";
+    return;
+  }
+  el.waypointChips.innerHTML = state.waypoints.map((w) => {
+    const active = w.pts === selectedWaypointPts;
+    const labelText = w.label ? `${w.pts} pts &middot; ${escapeHtml(w.label)}` : `${w.pts} pts`;
+    return `<span class="waypoint-chip${active ? " active" : ""}" data-pts="${w.pts}">
+      <span class="chip-label" data-pts="${w.pts}">${labelText}</span>
+      <button class="chip-remove" data-pts="${w.pts}" title="Remove this waypoint" aria-label="Remove waypoint">&times;</button>
+    </span>`;
+  }).join("");
+  Array.from(el.waypointChips.querySelectorAll(".chip-label")).forEach((labelEl) => {
+    labelEl.addEventListener("click", () => {
+      const pts = parseInt(labelEl.getAttribute("data-pts"), 10);
+      selectedWaypointPts = selectedWaypointPts === pts ? null : pts;
+      renderProgression();
+    });
+  });
+  Array.from(el.waypointChips.querySelectorAll(".chip-remove")).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pts = parseInt(btn.getAttribute("data-pts"), 10);
+      removeWaypoint(pts);
+      if (selectedWaypointPts === pts) selectedWaypointPts = null;
+      renderProgression();
+    });
+  });
+}
+
+// Prompts for a point total (and optional name) and adds/replaces the
+// waypoint at that total. Native prompt() rather than a modal - two short
+// fields, same lightweight-dialog spirit as confirmReplaceCurrentBuild's
+// save-first flow elsewhere in this app, not worth a whole form for.
+export function handleAddWaypoint() {
+  const raw = prompt("Waypoint at how many points?", String(spentPoints()));
+  if (raw === null) return;
+  const pts = parseInt(raw.trim(), 10);
+  if (!Number.isFinite(pts) || pts < 0) {
+    showToast("Enter a point total of 0 or more.");
+    return;
+  }
+  const label = prompt("Name this waypoint (optional):", "");
+  if (!addOrUpdateWaypoint(pts, label)) return;
+  selectedWaypointPts = pts;
+  renderProgression();
+}
+
 export function renderProgression() {
   el.undoLastBtn.disabled = !canUndo();
   // hasAnyOwned checks state.owned globally, not just the current
@@ -433,6 +512,10 @@ export function renderProgression() {
   // active slots, so this has to be set before (and independent of) the
   // empty-purchaseOrder early return below.
   el.clearOwnedBtn.disabled = !hasAnyOwned();
+  // Waypoints can reasonably be set up before any picks exist (an
+  // aspirational "by 50 pts, get X"), so the chip bar renders unconditionally
+  // too, ahead of the empty-progression early return below.
+  renderWaypointChips();
 
   if (!state.purchaseOrder.length) {
     el.progressionContent.innerHTML = '<div class="empty">No AAs picked yet &mdash; your training order will appear here as you spend points, and you can reorder it afterward to plan ahead.</div>';
@@ -446,11 +529,36 @@ export function renderProgression() {
   const ownedPts = steps.reduce((sum, s) => sum + (s.owned ? s.stepCost : 0), 0);
   const togoPts = spentPoints() - ownedPts;
   el.ownedSummary.textContent = `${ownedPts} pt${ownedPts === 1 ? "" : "s"} owned, ${togoPts} to go`;
-  const rows = steps.map((s) => {
+
+  // Bounds of the currently-selected waypoint's segment, if any - the
+  // previous waypoint's pts (exclusive) through the selected one's (
+  // inclusive). -1 as the lower bound when there's no previous waypoint,
+  // since every real cumulative is >= 0. A selection whose waypoint no
+  // longer exists (just removed) is stale - drop it rather than highlight
+  // nothing while still claiming something's selected.
+  let segBounds = null;
+  if (selectedWaypointPts !== null) {
+    const idx = state.waypoints.findIndex((w) => w.pts === selectedWaypointPts);
+    if (idx >= 0) segBounds = { lo: idx > 0 ? state.waypoints[idx - 1].pts : -1, hi: selectedWaypointPts };
+    else selectedWaypointPts = null;
+  }
+
+  const timeline = computeProgressionTimeline(steps);
+  const htmlParts = timeline.map((entry) => {
+    if (entry.type === "divider") {
+      const labelText = entry.label ? `${escapeHtml(entry.label)} &middot; ` : "";
+      return `<div class="progression-divider${entry.unreached ? " unreached" : ""}">
+        <span class="divider-line"></span>
+        <span class="divider-label">${labelText}${entry.pts} pts${entry.unreached ? " &middot; not reached yet" : ""}</span>
+        <span class="divider-line"></span>
+      </div>`;
+    }
+    const s = entry;
+    const inSeg = !!segBounds && s.cumulative > segBounds.lo && s.cumulative <= segBounds.hi;
     const canExpand = !!(s.aa && s.stepRank < s.aa.ranks);
     const key = expandKey(s);
     const expanded = canExpand && expandedSteps.has(key);
-    const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}" draggable="true" data-index="${s.index}">
+    const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}${inSeg ? " segment-highlight" : ""}" draggable="true" data-index="${s.index}">
       <span class="drag-handle" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
       <span class="step-num">${s.index + 1}</span>
       <span class="step-info">
@@ -479,7 +587,7 @@ export function renderProgression() {
       </div>`;
   });
 
-  el.progressionContent.innerHTML = rows.join("");
+  el.progressionContent.innerHTML = htmlParts.join("");
   Array.from(el.progressionContent.querySelectorAll(".step-btn[data-move]")).forEach((btn) => {
     if (btn.disabled) return;
     btn.addEventListener("click", () => {
@@ -592,6 +700,41 @@ export function renderProgression() {
       e.preventDefault();
       const overIndex = parseInt(ownerRow.getAttribute("data-index"), 10);
       moveProgressionEntryTo(dragSrcIndex, overIndex + 1);
+      dragSrcIndex = null;
+    });
+  });
+
+  // A waypoint divider is the same kind of dead zone as a next-rank preview
+  // box (a non-draggable sibling with no handlers of its own) - same fix:
+  // treat it as an extension of the row right above it, dropping anywhere on
+  // it inserts after that row. A divider with no row above it at all (its
+  // threshold is below the very first step's cumulative) maps to "insert at
+  // the very start" instead, via the first row's own top-half indicator.
+  Array.from(el.progressionContent.querySelectorAll(".progression-divider")).forEach((divEl) => {
+    const ownerRow = findPrecedingRow(divEl);
+    divEl.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      clearDragOverMarks();
+      if (!ownerRow) {
+        const firstRow = el.progressionContent.querySelector(".progression-row");
+        if (firstRow && parseInt(firstRow.getAttribute("data-index"), 10) !== dragSrcIndex) {
+          firstRow.classList.add("drag-over-top");
+          if (dragWouldIntroduceWarn(0)) firstRow.classList.add("drag-warn");
+        }
+        return;
+      }
+      const overIndex = parseInt(ownerRow.getAttribute("data-index"), 10);
+      if (overIndex === dragSrcIndex) return;
+      ownerRow.classList.add("drag-over-bottom");
+      if (dragWouldIntroduceWarn(overIndex + 1)) ownerRow.classList.add("drag-warn");
+    });
+    divEl.addEventListener("drop", (e) => {
+      if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
+      e.preventDefault();
+      const toIndex = ownerRow ? parseInt(ownerRow.getAttribute("data-index"), 10) + 1 : 0;
+      moveProgressionEntryTo(dragSrcIndex, toIndex);
       dragSrcIndex = null;
     });
   });

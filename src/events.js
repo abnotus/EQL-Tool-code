@@ -7,7 +7,7 @@ import {
   renderAll, showToast, populateClassSelects, renderTree, renderBrowse, undoLast,
   openChangelogModal, closeChangelogModal, wireProgressionDropZone,
   openBuildsModal, closeBuildsModal, handleBuildSave,
-  openResetModal, closeResetModal, handleConfirmReset, renderProgression
+  openResetModal, closeResetModal, handleConfirmReset, renderProgression, handleAddWaypoint
 } from "./render.js";
 import {
   openExportModal, copyExportText, copyShareLink, saveExportAsTxt, closeExportModal,
@@ -136,6 +136,8 @@ export function wireEvents() {
     renderProgression();
     showToast("Owned progress cleared");
   });
+
+  el.addWaypointBtn.addEventListener("click", handleAddWaypoint);
 
   el.dismissBannerBtn.addEventListener("click", () => {
     el.disclaimerBanner.classList.add("hidden");

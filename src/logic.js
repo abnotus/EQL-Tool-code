@@ -3,7 +3,7 @@
 // Depends only on state.js — never on render.js — so the dependency graph stays
 // one-directional (render depends on logic, not the other way around).
 
-import { state, CLASS_SLOT_KEYS, AA_CATEGORY_KEYS, saveLocal, saveOwned } from "./state.js";
+import { state, CLASS_SLOT_KEYS, AA_CATEGORY_KEYS, saveLocal, saveOwned, sanitizeWaypoints } from "./state.js";
 
 export function costNum(c) {
   const n = parseInt(c, 10);
@@ -205,6 +205,30 @@ export function clearAllOwned() {
   state.owned = { general: {}, archetype: {}, special: {}, classes: {} };
   lastMutation = null;
   saveOwned();
+}
+
+// Sets (or replaces, if one already exists at this exact total) a named
+// point-total marker. Plan annotation, not a plan mutation - like
+// expandedSteps in render.js, this deliberately doesn't touch lastMutation,
+// so adding/removing a waypoint never clobbers (or gets clobbered by) an
+// unrelated pending Undo Last. Returns false without changing anything if
+// pts isn't a valid non-negative number.
+export function addOrUpdateWaypoint(pts, label) {
+  const n = parseInt(pts, 10);
+  if (!Number.isFinite(n) || n < 0) return false;
+  // sanitizeWaypoints does the actual clamping/label-cleaning/sorting/dedup
+  // (last entry for a given pts wins), so re-run the merged array through it
+  // rather than duplicating that logic here.
+  const merged = state.waypoints.filter((w) => w.pts !== n);
+  merged.push({ pts: n, label });
+  state.waypoints = sanitizeWaypoints(merged);
+  saveLocal();
+  return true;
+}
+
+export function removeWaypoint(pts) {
+  state.waypoints = state.waypoints.filter((w) => w.pts !== pts);
+  saveLocal();
 }
 
 // Purchase-order entries key AA picks by class NAME (not slot position), since class
@@ -914,4 +938,48 @@ export function computeProgressionSteps(order = state.purchaseOrder) {
       category, active, stepRank, stepCost, cumulative, prereqWarn, label, name, isLast, owned
     };
   });
+}
+
+// Interleaves computeProgressionSteps' output with divider markers for each
+// waypoint, in cumulative order: { type: "step", ...s } for a real step,
+// { type: "divider", pts, label, unreached } where a waypoint's threshold
+// falls. A divider for waypoint W goes right after the last step whose
+// cumulative is <= W.pts and right before the first step whose cumulative
+// exceeds it (inclusive boundary - a step landing exactly on the threshold
+// counts as reaching it, not past it). state.waypoints is already sorted
+// ascending by pts, so this is a single merge pass, no re-sorting needed.
+//
+// A waypoint whose pts is never reached (every step's cumulative stays
+// below it - an aspirational marker, or simply an empty/small plan) gets
+// flushed after the last step instead, with unreached:true so the UI can
+// say so rather than rendering it identically to one actually hit. That
+// tail flush also catches the boundary case where a waypoint's pts exactly
+// equals the LAST step's cumulative - nothing after it to trigger the
+// in-loop flush above, so it falls through to here too, but it WAS reached
+// (inclusive boundary): compared against lastCumulative rather than
+// unconditionally marked unreached, so an exact hit on the final step still
+// reads as reached, not as "never got there".
+//
+// Cumulative treats an undocumented "?" cost as 0 (see costNum) - a
+// waypoint boundary can land slightly off when unknowns are involved. That
+// mirrors the existing "?" disclosure everywhere else costs are shown
+// rather than trying to special-case it here.
+export function computeProgressionTimeline(steps) {
+  const wps = state.waypoints;
+  const timeline = [];
+  let wi = 0;
+  let lastCumulative = 0;
+  steps.forEach((s) => {
+    while (wi < wps.length && wps[wi].pts < s.cumulative) {
+      timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: false });
+      wi++;
+    }
+    timeline.push({ type: "step", ...s });
+    lastCumulative = s.cumulative;
+  });
+  while (wi < wps.length) {
+    timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: wps[wi].pts > lastCumulative });
+    wi++;
+  }
+  return timeline;
 }

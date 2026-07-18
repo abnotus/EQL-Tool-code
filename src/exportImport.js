@@ -67,6 +67,14 @@ function buildCodeObject(includeOwned) {
     const compactOwned = compactRanksFor(state.owned);
     if (compactOwned.length) payload.o = compactOwned;
   }
+  // Unlike o (owned), w is unconditional - waypoints are plan structure
+  // ("get these by 75 pts" is a statement about this ordering), same as
+  // ranks/purchaseOrder, not personal data that needs an opt-in. No AA
+  // identity involved (just a point total + label), so no id lookup needed
+  // the way compactRanksFor needs for ranks/owned - a bare [pts, label]
+  // pair per waypoint. Additive field: old clients that don't know about it
+  // just ignore it, no BUILD_CODE_VERSION bump needed.
+  if (state.waypoints.length) payload.w = state.waypoints.map((w) => [w.pts, w.label]);
   return payload;
 }
 
@@ -104,6 +112,10 @@ function expandCompactPayload(compact) {
     totalPoints: compact.t,
     ranks: expandCompactRanks(compact.r),
     purchaseOrder,
+    // Raw [pts, label] pairs, or absent on an older link/build predating
+    // this field - either way applyLoaded's sanitizeWaypoints call handles
+    // validating/clamping/defaulting, same as it does for a verbose payload.
+    waypoints: compact.w || [],
     // Present only if the sender opted in and actually had owned data (see
     // buildCodeObject) - expandCompactRanks(undefined) degrades to the empty
     // shape either way. applyLoaded itself still never reads this (owned

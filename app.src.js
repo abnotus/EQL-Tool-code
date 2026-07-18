@@ -363,6 +363,14 @@ function entryForId(id) {
 // add a new entry at the top whenever a user-relevant change ships.
 const USER_CHANGELOG = [
   {
+    version: "1.5.0",
+    date: "2026-07-18",
+    items: [
+      "New: Waypoints on the Progression tab — mark a point total worth returning to (with an optional name, like \"Level 20\" or \"Turn-in gear\") and it shows up as a labeled divider right where your training order crosses it. Click a waypoint's chip to highlight everything you'll have by then; click it again to clear the highlight.",
+      "Waypoints are anchored to a point total, not a position in the list, so they hold up under reordering, undo, and Reset Build without needing to be redone — Reset Build keeps them the same way it keeps owned progress. They travel with the plan: included in named Builds and share links/export codes."
+    ]
+  },
+  {
     version: "1.4.1",
     date: "2026-07-18",
     items: [
@@ -473,6 +481,16 @@ let state = {
   // share link must never overwrite or wipe it, since it isn't part of "the
   // build" at all. See loadAndApplyOwned/saveOwned.
   owned: { general: {}, archetype: {}, special: {}, classes: {} },
+  // Named point-total markers ({ pts, label }), sorted ascending by pts and
+  // deduped by pts. Unlike owned, these describe the PLAN itself ("get these
+  // by 75 pts" is a statement about this ordering), so they live inside the
+  // build payload/slots/share codes, not a separate global key. Anchored to
+  // a point total rather than a list position or step reference on purpose -
+  // a position would break under reorder/undo/reset the same way an
+  // AA-identity reference would; a point total just gets re-derived against
+  // whatever the current order happens to be, with zero interaction with
+  // moveEntry or any of its invariants.
+  waypoints: [],
   activeView: "calculator", // 'calculator' | 'browse' | 'summary' | 'progression'
   activeTab: "general", // 'general' | 'archetype' | 'classSlot0' | 'classSlot1' | 'classSlot2' | 'special'
   selectedNode: null, // { category, idx }
@@ -575,6 +593,39 @@ function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
   }).filter(Boolean);
 }
 
+// Generous enough that no real user approaches it, tight enough that a
+// hostile pasted code/link can't inject an unbounded array (same spirit as
+// MAX_TOTAL_POINTS above).
+const MAX_WAYPOINTS = 200;
+
+// Waypoints don't reference any AA identity (unlike ranks/purchaseOrder), so
+// there's no name-key resolution here - just validating/clamping untrusted
+// input from localStorage, a pasted build code, or a share link into the
+// { pts, label } shape state.waypoints actually uses. Accepts either that
+// verbose shape or the compact [pts, label] pair exportImport.js's `w` field
+// uses, so this one function can sanitize both sources. Duplicate pts values
+// collapse to the last one seen (an explicit re-set should win over an
+// earlier stale entry, not silently create two markers at the same total).
+function sanitizeWaypoints(list) {
+  if (!Array.isArray(list)) return [];
+  const byPts = new Map();
+  list.forEach((entry) => {
+    let rawPts, rawLabel;
+    if (Array.isArray(entry)) [rawPts, rawLabel] = entry;
+    else if (entry && typeof entry === "object") { rawPts = entry.pts; rawLabel = entry.label; }
+    else return;
+    const pts = parseInt(rawPts, 10);
+    if (!Number.isFinite(pts) || pts < 0) return;
+    const clamped = Math.min(pts, MAX_TOTAL_POINTS);
+    const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim().slice(0, 60) : null;
+    byPts.set(clamped, label);
+  });
+  return Array.from(byPts.entries())
+    .map(([pts, label]) => ({ pts, label }))
+    .sort((a, b) => a.pts - b.pts)
+    .slice(0, MAX_WAYPOINTS);
+}
+
 function saveLocal() {
   try {
     const payload = {
@@ -583,7 +634,8 @@ function saveLocal() {
       charLevel: state.charLevel,
       totalPoints: state.totalPoints,
       ranks: serializeRanks(state.ranks),
-      purchaseOrder: serializePurchaseOrder(state.purchaseOrder)
+      purchaseOrder: serializePurchaseOrder(state.purchaseOrder),
+      waypoints: state.waypoints
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (e) { /* storage unavailable, ignore */ }
@@ -664,6 +716,16 @@ function applyLoaded(loaded) {
   // owned field (an old payload saved during this feature's brief window of
   // embedding it there, or a share code that once carried it, both just get
   // ignored here as an unrecognized extra field).
+  //
+  // Unlike ranks/purchaseOrder (left as-is if the field is simply missing -
+  // a malformed-partial-payload tolerance, not a deliberate merge), waypoints
+  // always get reset here, present or not - they ARE part of "the build"
+  // being loaded, same reasoning owned used to need before it moved to its
+  // own key: a build saved/shared before this feature has no waypoints
+  // field at all, and loading it must actually clear whatever waypoints the
+  // *previous* build in memory had, not silently carry them over onto an
+  // unrelated build that never had them.
+  state.waypoints = sanitizeWaypoints(loaded.waypoints);
   return { droppedRanks };
 }
 
@@ -925,6 +987,30 @@ function clearAllOwned() {
   state.owned = { general: {}, archetype: {}, special: {}, classes: {} };
   lastMutation = null;
   saveOwned();
+}
+
+// Sets (or replaces, if one already exists at this exact total) a named
+// point-total marker. Plan annotation, not a plan mutation - like
+// expandedSteps in render.js, this deliberately doesn't touch lastMutation,
+// so adding/removing a waypoint never clobbers (or gets clobbered by) an
+// unrelated pending Undo Last. Returns false without changing anything if
+// pts isn't a valid non-negative number.
+function addOrUpdateWaypoint(pts, label) {
+  const n = parseInt(pts, 10);
+  if (!Number.isFinite(n) || n < 0) return false;
+  // sanitizeWaypoints does the actual clamping/label-cleaning/sorting/dedup
+  // (last entry for a given pts wins), so re-run the merged array through it
+  // rather than duplicating that logic here.
+  const merged = state.waypoints.filter((w) => w.pts !== n);
+  merged.push({ pts: n, label });
+  state.waypoints = sanitizeWaypoints(merged);
+  saveLocal();
+  return true;
+}
+
+function removeWaypoint(pts) {
+  state.waypoints = state.waypoints.filter((w) => w.pts !== pts);
+  saveLocal();
 }
 
 // Purchase-order entries key AA picks by class NAME (not slot position), since class
@@ -1636,6 +1722,50 @@ function computeProgressionSteps(order = state.purchaseOrder) {
   });
 }
 
+// Interleaves computeProgressionSteps' output with divider markers for each
+// waypoint, in cumulative order: { type: "step", ...s } for a real step,
+// { type: "divider", pts, label, unreached } where a waypoint's threshold
+// falls. A divider for waypoint W goes right after the last step whose
+// cumulative is <= W.pts and right before the first step whose cumulative
+// exceeds it (inclusive boundary - a step landing exactly on the threshold
+// counts as reaching it, not past it). state.waypoints is already sorted
+// ascending by pts, so this is a single merge pass, no re-sorting needed.
+//
+// A waypoint whose pts is never reached (every step's cumulative stays
+// below it - an aspirational marker, or simply an empty/small plan) gets
+// flushed after the last step instead, with unreached:true so the UI can
+// say so rather than rendering it identically to one actually hit. That
+// tail flush also catches the boundary case where a waypoint's pts exactly
+// equals the LAST step's cumulative - nothing after it to trigger the
+// in-loop flush above, so it falls through to here too, but it WAS reached
+// (inclusive boundary): compared against lastCumulative rather than
+// unconditionally marked unreached, so an exact hit on the final step still
+// reads as reached, not as "never got there".
+//
+// Cumulative treats an undocumented "?" cost as 0 (see costNum) - a
+// waypoint boundary can land slightly off when unknowns are involved. That
+// mirrors the existing "?" disclosure everywhere else costs are shown
+// rather than trying to special-case it here.
+function computeProgressionTimeline(steps) {
+  const wps = state.waypoints;
+  const timeline = [];
+  let wi = 0;
+  let lastCumulative = 0;
+  steps.forEach((s) => {
+    while (wi < wps.length && wps[wi].pts < s.cumulative) {
+      timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: false });
+      wi++;
+    }
+    timeline.push({ type: "step", ...s });
+    lastCumulative = s.cumulative;
+  });
+  while (wi < wps.length) {
+    timeline.push({ type: "divider", pts: wps[wi].pts, label: wps[wi].label, unreached: wps[wi].pts > lastCumulative });
+    wi++;
+  }
+  return timeline;
+}
+
 // Named build slots: save/load/rename/delete snapshots of the current build in
 // localStorage, independent of state.js's own always-autosaving STORAGE_KEY —
 // that key keeps holding "whatever you're currently editing", exactly as it
@@ -1712,10 +1842,11 @@ function buildPayload() {
     charLevel: state.charLevel,
     totalPoints: state.totalPoints,
     ranks: serializeRanks(state.ranks),
-    purchaseOrder: serializePurchaseOrder(state.purchaseOrder)
-    // owned is deliberately NOT part of a slot's snapshot - it's character-
-    // global (see state.js's OWNED_STORAGE_KEY), not something any one plan
-    // owns, so switching between saved slots must never touch it.
+    purchaseOrder: serializePurchaseOrder(state.purchaseOrder),
+    // Unlike owned (deliberately NOT part of a slot's snapshot - see
+    // OWNED_STORAGE_KEY), waypoints describe the plan itself, so a saved
+    // slot captures them same as ranks/purchaseOrder.
+    waypoints: state.waypoints
   };
 }
 
@@ -1967,6 +2098,8 @@ function cacheDom() {
   el.undoLastBtn = document.getElementById("undoLastBtn");
   el.ownedSummary = document.getElementById("ownedSummary");
   el.clearOwnedBtn = document.getElementById("clearOwnedBtn");
+  el.addWaypointBtn = document.getElementById("addWaypointBtn");
+  el.waypointChips = document.getElementById("waypointChips");
   el.treeWrap = document.getElementById("treeWrap");
   el.sidePanel = document.getElementById("sidePanel");
   el.globalSearch = document.getElementById("globalSearch");
@@ -2338,6 +2471,14 @@ function renderSummary() {
 const expandedSteps = new Set();
 function expandKey(s) { return `${s.category || ""}:${s.idx}:${s.stepRank}`; }
 
+// Which waypoint's segment is currently highlighted, by its pts value (pts
+// is unique per waypoint - see sanitizeWaypoints' dedup). Same spirit as
+// expandedSteps: purely transient UI selection, not persisted, and never
+// touches lastMutation - "swapping" between waypoints is just changing what
+// you're looking at, not a plan mutation. Cleared automatically by
+// renderWaypointChips if the selected waypoint was removed out from under it.
+let selectedWaypointPts = null;
+
 // Index (into state.purchaseOrder) of the row currently being dragged, or null
 // when no drag is in progress. Module-level since dragstart/dragover/drop fire
 // on different row elements that get torn down and rebuilt on every render.
@@ -2362,6 +2503,20 @@ function clearDragOverMarks() {
   Array.from(el.progressionContent.querySelectorAll(".progression-row")).forEach((r) => {
     r.classList.remove("drag-over-top", "drag-over-bottom", "drag-warn");
   });
+}
+
+// Walks back through preceding siblings to the nearest actual
+// .progression-row, skipping over any run of divider rows and/or a
+// next-rank preview box in between - a divider can end up directly after
+// another divider (two waypoints falling in the same gap) or after an
+// expanded preview box (the step right before a waypoint boundary has its
+// preview open), neither of which is itself a valid "owner row". Returns
+// null if there's no row above at all (a divider whose threshold is below
+// the very first step's cumulative).
+function findPrecedingRow(fromEl) {
+  let sib = fromEl.previousElementSibling;
+  while (sib && !sib.classList.contains("progression-row")) sib = sib.previousElementSibling;
+  return sib;
 }
 
 function countPrereqWarns(steps) {
@@ -2404,6 +2559,63 @@ function dragWouldIntroduceWarn(toIndex) {
   return countPrereqWarns(hypoSteps) > dragBaselineWarnCount;
 }
 
+// Renders the waypoint chip row - one pill per state.waypoints entry
+// (already sorted ascending by pts), clicking the label toggles it as the
+// selected/highlighted segment (clicking the active one deselects, matching
+// "swapping" being a single-select action), the &times; removes it outright.
+// Called from renderProgression, but unconditionally - see its own comment
+// for why this can't wait behind the empty-progression check.
+function renderWaypointChips() {
+  if (selectedWaypointPts !== null && !state.waypoints.some((w) => w.pts === selectedWaypointPts)) {
+    selectedWaypointPts = null;
+  }
+  if (!state.waypoints.length) {
+    el.waypointChips.innerHTML = "";
+    return;
+  }
+  el.waypointChips.innerHTML = state.waypoints.map((w) => {
+    const active = w.pts === selectedWaypointPts;
+    const labelText = w.label ? `${w.pts} pts &middot; ${escapeHtml(w.label)}` : `${w.pts} pts`;
+    return `<span class="waypoint-chip${active ? " active" : ""}" data-pts="${w.pts}">
+      <span class="chip-label" data-pts="${w.pts}">${labelText}</span>
+      <button class="chip-remove" data-pts="${w.pts}" title="Remove this waypoint" aria-label="Remove waypoint">&times;</button>
+    </span>`;
+  }).join("");
+  Array.from(el.waypointChips.querySelectorAll(".chip-label")).forEach((labelEl) => {
+    labelEl.addEventListener("click", () => {
+      const pts = parseInt(labelEl.getAttribute("data-pts"), 10);
+      selectedWaypointPts = selectedWaypointPts === pts ? null : pts;
+      renderProgression();
+    });
+  });
+  Array.from(el.waypointChips.querySelectorAll(".chip-remove")).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pts = parseInt(btn.getAttribute("data-pts"), 10);
+      removeWaypoint(pts);
+      if (selectedWaypointPts === pts) selectedWaypointPts = null;
+      renderProgression();
+    });
+  });
+}
+
+// Prompts for a point total (and optional name) and adds/replaces the
+// waypoint at that total. Native prompt() rather than a modal - two short
+// fields, same lightweight-dialog spirit as confirmReplaceCurrentBuild's
+// save-first flow elsewhere in this app, not worth a whole form for.
+function handleAddWaypoint() {
+  const raw = prompt("Waypoint at how many points?", String(spentPoints()));
+  if (raw === null) return;
+  const pts = parseInt(raw.trim(), 10);
+  if (!Number.isFinite(pts) || pts < 0) {
+    showToast("Enter a point total of 0 or more.");
+    return;
+  }
+  const label = prompt("Name this waypoint (optional):", "");
+  if (!addOrUpdateWaypoint(pts, label)) return;
+  selectedWaypointPts = pts;
+  renderProgression();
+}
+
 function renderProgression() {
   el.undoLastBtn.disabled = !canUndo();
   // hasAnyOwned checks state.owned globally, not just the current
@@ -2411,6 +2623,10 @@ function renderProgression() {
   // active slots, so this has to be set before (and independent of) the
   // empty-purchaseOrder early return below.
   el.clearOwnedBtn.disabled = !hasAnyOwned();
+  // Waypoints can reasonably be set up before any picks exist (an
+  // aspirational "by 50 pts, get X"), so the chip bar renders unconditionally
+  // too, ahead of the empty-progression early return below.
+  renderWaypointChips();
 
   if (!state.purchaseOrder.length) {
     el.progressionContent.innerHTML = '<div class="empty">No AAs picked yet &mdash; your training order will appear here as you spend points, and you can reorder it afterward to plan ahead.</div>';
@@ -2424,11 +2640,36 @@ function renderProgression() {
   const ownedPts = steps.reduce((sum, s) => sum + (s.owned ? s.stepCost : 0), 0);
   const togoPts = spentPoints() - ownedPts;
   el.ownedSummary.textContent = `${ownedPts} pt${ownedPts === 1 ? "" : "s"} owned, ${togoPts} to go`;
-  const rows = steps.map((s) => {
+
+  // Bounds of the currently-selected waypoint's segment, if any - the
+  // previous waypoint's pts (exclusive) through the selected one's (
+  // inclusive). -1 as the lower bound when there's no previous waypoint,
+  // since every real cumulative is >= 0. A selection whose waypoint no
+  // longer exists (just removed) is stale - drop it rather than highlight
+  // nothing while still claiming something's selected.
+  let segBounds = null;
+  if (selectedWaypointPts !== null) {
+    const idx = state.waypoints.findIndex((w) => w.pts === selectedWaypointPts);
+    if (idx >= 0) segBounds = { lo: idx > 0 ? state.waypoints[idx - 1].pts : -1, hi: selectedWaypointPts };
+    else selectedWaypointPts = null;
+  }
+
+  const timeline = computeProgressionTimeline(steps);
+  const htmlParts = timeline.map((entry) => {
+    if (entry.type === "divider") {
+      const labelText = entry.label ? `${escapeHtml(entry.label)} &middot; ` : "";
+      return `<div class="progression-divider${entry.unreached ? " unreached" : ""}">
+        <span class="divider-line"></span>
+        <span class="divider-label">${labelText}${entry.pts} pts${entry.unreached ? " &middot; not reached yet" : ""}</span>
+        <span class="divider-line"></span>
+      </div>`;
+    }
+    const s = entry;
+    const inSeg = !!segBounds && s.cumulative > segBounds.lo && s.cumulative <= segBounds.hi;
     const canExpand = !!(s.aa && s.stepRank < s.aa.ranks);
     const key = expandKey(s);
     const expanded = canExpand && expandedSteps.has(key);
-    const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}" draggable="true" data-index="${s.index}">
+    const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}${inSeg ? " segment-highlight" : ""}" draggable="true" data-index="${s.index}">
       <span class="drag-handle" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
       <span class="step-num">${s.index + 1}</span>
       <span class="step-info">
@@ -2457,7 +2698,7 @@ function renderProgression() {
       </div>`;
   });
 
-  el.progressionContent.innerHTML = rows.join("");
+  el.progressionContent.innerHTML = htmlParts.join("");
   Array.from(el.progressionContent.querySelectorAll(".step-btn[data-move]")).forEach((btn) => {
     if (btn.disabled) return;
     btn.addEventListener("click", () => {
@@ -2570,6 +2811,41 @@ function renderProgression() {
       e.preventDefault();
       const overIndex = parseInt(ownerRow.getAttribute("data-index"), 10);
       moveProgressionEntryTo(dragSrcIndex, overIndex + 1);
+      dragSrcIndex = null;
+    });
+  });
+
+  // A waypoint divider is the same kind of dead zone as a next-rank preview
+  // box (a non-draggable sibling with no handlers of its own) - same fix:
+  // treat it as an extension of the row right above it, dropping anywhere on
+  // it inserts after that row. A divider with no row above it at all (its
+  // threshold is below the very first step's cumulative) maps to "insert at
+  // the very start" instead, via the first row's own top-half indicator.
+  Array.from(el.progressionContent.querySelectorAll(".progression-divider")).forEach((divEl) => {
+    const ownerRow = findPrecedingRow(divEl);
+    divEl.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      clearDragOverMarks();
+      if (!ownerRow) {
+        const firstRow = el.progressionContent.querySelector(".progression-row");
+        if (firstRow && parseInt(firstRow.getAttribute("data-index"), 10) !== dragSrcIndex) {
+          firstRow.classList.add("drag-over-top");
+          if (dragWouldIntroduceWarn(0)) firstRow.classList.add("drag-warn");
+        }
+        return;
+      }
+      const overIndex = parseInt(ownerRow.getAttribute("data-index"), 10);
+      if (overIndex === dragSrcIndex) return;
+      ownerRow.classList.add("drag-over-bottom");
+      if (dragWouldIntroduceWarn(overIndex + 1)) ownerRow.classList.add("drag-warn");
+    });
+    divEl.addEventListener("drop", (e) => {
+      if (!e.dataTransfer.types.includes(PROGRESSION_DRAG_TYPE)) return;
+      e.preventDefault();
+      const toIndex = ownerRow ? parseInt(ownerRow.getAttribute("data-index"), 10) + 1 : 0;
+      moveProgressionEntryTo(dragSrcIndex, toIndex);
       dragSrcIndex = null;
     });
   });
@@ -2890,6 +3166,14 @@ function buildCodeObject(includeOwned) {
     const compactOwned = compactRanksFor(state.owned);
     if (compactOwned.length) payload.o = compactOwned;
   }
+  // Unlike o (owned), w is unconditional - waypoints are plan structure
+  // ("get these by 75 pts" is a statement about this ordering), same as
+  // ranks/purchaseOrder, not personal data that needs an opt-in. No AA
+  // identity involved (just a point total + label), so no id lookup needed
+  // the way compactRanksFor needs for ranks/owned - a bare [pts, label]
+  // pair per waypoint. Additive field: old clients that don't know about it
+  // just ignore it, no BUILD_CODE_VERSION bump needed.
+  if (state.waypoints.length) payload.w = state.waypoints.map((w) => [w.pts, w.label]);
   return payload;
 }
 
@@ -2927,6 +3211,10 @@ function expandCompactPayload(compact) {
     totalPoints: compact.t,
     ranks: expandCompactRanks(compact.r),
     purchaseOrder,
+    // Raw [pts, label] pairs, or absent on an older link/build predating
+    // this field - either way applyLoaded's sanitizeWaypoints call handles
+    // validating/clamping/defaulting, same as it does for a verbose payload.
+    waypoints: compact.w || [],
     // Present only if the sender opted in and actually had owned data (see
     // buildCodeObject) - expandCompactRanks(undefined) degrades to the empty
     // shape either way. applyLoaded itself still never reads this (owned
@@ -3407,6 +3695,8 @@ function wireEvents() {
     renderProgression();
     showToast("Owned progress cleared");
   });
+
+  el.addWaypointBtn.addEventListener("click", handleAddWaypoint);
 
   el.dismissBannerBtn.addEventListener("click", () => {
     el.disclaimerBanner.classList.add("hidden");

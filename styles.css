@@ -730,6 +730,92 @@ main {
   align-self: center;
 }
 
+.waypoints-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.waypoints-bar #addWaypointBtn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.waypoint-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.waypoint-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-panel-2);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.chip-label { cursor: pointer; }
+
+.waypoint-chip:hover { border-color: var(--accent); }
+
+.waypoint-chip.active {
+  border-color: var(--accent-bright);
+  background: rgba(217, 76, 76, 0.15);
+  color: var(--accent-bright);
+}
+
+.chip-remove {
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.chip-remove:hover { opacity: 1; color: #e08b78; }
+
+/* Divider rows are non-draggable siblings of .progression-row inside
+   progressionContent - see findPrecedingRow/the drag wiring in render.js for
+   how they stay out of the dead-zone trap next-rank preview boxes already
+   solved. */
+.progression-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 12px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.progression-divider.unreached { opacity: 0.55; }
+
+.divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+
+.divider-label { flex-shrink: 0; white-space: nowrap; }
+
+/* Background tint, not opacity or text color - composes with .inactive,
+   .dragging, .prereq-warn-row, and owned's strikethrough with no arithmetic
+   (opacity multiplies across states, e.g. the .dragging/.prereq-warn-row
+   combo rule a few lines down exists precisely because it doesn't; a plain
+   background paints underneath all of that for free). */
+.progression-row.segment-highlight { background: rgba(217, 76, 76, 0.08); }
+
 .progression-row {
   display: flex;
   align-items: center;

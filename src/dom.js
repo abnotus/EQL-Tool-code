@@ -43,6 +43,8 @@ export function cacheDom() {
   el.undoLastBtn = document.getElementById("undoLastBtn");
   el.ownedSummary = document.getElementById("ownedSummary");
   el.clearOwnedBtn = document.getElementById("clearOwnedBtn");
+  el.addWaypointBtn = document.getElementById("addWaypointBtn");
+  el.waypointChips = document.getElementById("waypointChips");
   el.treeWrap = document.getElementById("treeWrap");
   el.sidePanel = document.getElementById("sidePanel");
   el.globalSearch = document.getElementById("globalSearch");

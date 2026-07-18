@@ -46,6 +46,16 @@ export let state = {
   // share link must never overwrite or wipe it, since it isn't part of "the
   // build" at all. See loadAndApplyOwned/saveOwned.
   owned: { general: {}, archetype: {}, special: {}, classes: {} },
+  // Named point-total markers ({ pts, label }), sorted ascending by pts and
+  // deduped by pts. Unlike owned, these describe the PLAN itself ("get these
+  // by 75 pts" is a statement about this ordering), so they live inside the
+  // build payload/slots/share codes, not a separate global key. Anchored to
+  // a point total rather than a list position or step reference on purpose -
+  // a position would break under reorder/undo/reset the same way an
+  // AA-identity reference would; a point total just gets re-derived against
+  // whatever the current order happens to be, with zero interaction with
+  // moveEntry or any of its invariants.
+  waypoints: [],
   activeView: "calculator", // 'calculator' | 'browse' | 'summary' | 'progression'
   activeTab: "general", // 'general' | 'archetype' | 'classSlot0' | 'classSlot1' | 'classSlot2' | 'special'
   selectedNode: null, // { category, idx }
@@ -148,6 +158,39 @@ function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
   }).filter(Boolean);
 }
 
+// Generous enough that no real user approaches it, tight enough that a
+// hostile pasted code/link can't inject an unbounded array (same spirit as
+// MAX_TOTAL_POINTS above).
+const MAX_WAYPOINTS = 200;
+
+// Waypoints don't reference any AA identity (unlike ranks/purchaseOrder), so
+// there's no name-key resolution here - just validating/clamping untrusted
+// input from localStorage, a pasted build code, or a share link into the
+// { pts, label } shape state.waypoints actually uses. Accepts either that
+// verbose shape or the compact [pts, label] pair exportImport.js's `w` field
+// uses, so this one function can sanitize both sources. Duplicate pts values
+// collapse to the last one seen (an explicit re-set should win over an
+// earlier stale entry, not silently create two markers at the same total).
+export function sanitizeWaypoints(list) {
+  if (!Array.isArray(list)) return [];
+  const byPts = new Map();
+  list.forEach((entry) => {
+    let rawPts, rawLabel;
+    if (Array.isArray(entry)) [rawPts, rawLabel] = entry;
+    else if (entry && typeof entry === "object") { rawPts = entry.pts; rawLabel = entry.label; }
+    else return;
+    const pts = parseInt(rawPts, 10);
+    if (!Number.isFinite(pts) || pts < 0) return;
+    const clamped = Math.min(pts, MAX_TOTAL_POINTS);
+    const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim().slice(0, 60) : null;
+    byPts.set(clamped, label);
+  });
+  return Array.from(byPts.entries())
+    .map(([pts, label]) => ({ pts, label }))
+    .sort((a, b) => a.pts - b.pts)
+    .slice(0, MAX_WAYPOINTS);
+}
+
 export function saveLocal() {
   try {
     const payload = {
@@ -156,7 +199,8 @@ export function saveLocal() {
       charLevel: state.charLevel,
       totalPoints: state.totalPoints,
       ranks: serializeRanks(state.ranks),
-      purchaseOrder: serializePurchaseOrder(state.purchaseOrder)
+      purchaseOrder: serializePurchaseOrder(state.purchaseOrder),
+      waypoints: state.waypoints
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (e) { /* storage unavailable, ignore */ }
@@ -237,6 +281,16 @@ export function applyLoaded(loaded) {
   // owned field (an old payload saved during this feature's brief window of
   // embedding it there, or a share code that once carried it, both just get
   // ignored here as an unrecognized extra field).
+  //
+  // Unlike ranks/purchaseOrder (left as-is if the field is simply missing -
+  // a malformed-partial-payload tolerance, not a deliberate merge), waypoints
+  // always get reset here, present or not - they ARE part of "the build"
+  // being loaded, same reasoning owned used to need before it moved to its
+  // own key: a build saved/shared before this feature has no waypoints
+  // field at all, and loading it must actually clear whatever waypoints the
+  // *previous* build in memory had, not silently carry them over onto an
+  // unrelated build that never had them.
+  state.waypoints = sanitizeWaypoints(loaded.waypoints);
   return { droppedRanks };
 }
 

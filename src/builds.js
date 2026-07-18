@@ -77,10 +77,11 @@ function buildPayload() {
     charLevel: state.charLevel,
     totalPoints: state.totalPoints,
     ranks: serializeRanks(state.ranks),
-    purchaseOrder: serializePurchaseOrder(state.purchaseOrder)
-    // owned is deliberately NOT part of a slot's snapshot - it's character-
-    // global (see state.js's OWNED_STORAGE_KEY), not something any one plan
-    // owns, so switching between saved slots must never touch it.
+    purchaseOrder: serializePurchaseOrder(state.purchaseOrder),
+    // Unlike owned (deliberately NOT part of a slot's snapshot - see
+    // OWNED_STORAGE_KEY), waypoints describe the plan itself, so a saved
+    // slot captures them same as ranks/purchaseOrder.
+    waypoints: state.waypoints
   };
 }
 
