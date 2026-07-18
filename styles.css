@@ -486,6 +486,17 @@ main {
 .node .costtag.is-estimate.tier-low { border-color: var(--estimate-low); color: var(--estimate-low); }
 .node .costtag.is-estimate.tier-very-low { border-color: var(--estimate-very-low); color: var(--estimate-very-low); }
 
+/* Same treatment, unscoped - for the couple of spots (Browse's per-rank
+   cost list, the Progression tab's per-step cost pill) that show a guess
+   inline without a dedicated container selector of their own above. Lower
+   specificity than the scoped rules, so it only fills in where those don't
+   already apply. */
+.is-estimate { font-style: italic; }
+.is-estimate.tier-high { color: var(--estimate-high); }
+.is-estimate.tier-medium { color: var(--estimate-medium); }
+.is-estimate.tier-low { color: var(--estimate-low); }
+.is-estimate.tier-very-low { color: var(--estimate-very-low); }
+
 .auto-badge {
   color: #c9c9ce;
   font-size: 10px;

@@ -9,7 +9,7 @@ import {
   isDependedOn, attemptIncrement, attemptDecrement, countPicked, computeProgressionSteps,
   costNum, spentPoints, undoLastMutation, canUndo, moveEntry, setOwnedRank, performReset,
   aaMatchesQuery, countMatches, heldRankInvalidReason, findInvalidatedPicks, loadIssuesSuffix,
-  hasAnyOwned, computeProgressionTimeline, addOrUpdateWaypoint, removeWaypoint, costGuess
+  hasAnyOwned, computeProgressionTimeline, addOrUpdateWaypoint, removeWaypoint, costGuess, costGuessScoped
 } from "./logic.js";
 import {
   listBuilds, getActiveBuildId, loadBuild, renameBuild, deleteBuild,
@@ -93,16 +93,17 @@ export function renderTabs() {
   });
 }
 
-// Shared by the tree node's cost badge, the side panel's next-rank box, and
-// its rank-costs pip strip - three places that all need the same "is this
-// rank's real cost known, or are we showing a pattern-inferred estimate"
-// decision, and shouldn't each reimplement it slightly differently. A guess
-// is display-only: nothing here ever feeds costNum()/spentPoints() - those
-// keep treating "?" as 0 exactly like before, regardless of whether a guess
-// exists for display.
-function costDisplay(catKey, idx, rankIdx, rawCost) {
+// Shared by every place that shows a per-rank cost - the tree node's cost
+// badge, the side panel's next-rank box and rank-costs pip strip, Browse's
+// per-rank cost list, and the Progression tab's per-step cost pill and its
+// own next-rank preview - so they all resolve the same "is this rank's real
+// cost known, or are we showing a pattern-inferred estimate" decision one
+// way, instead of each reimplementing it (and drifting) slightly
+// differently. A guess is display-only: nothing here ever feeds
+// costNum()/spentPoints() - those keep treating "?" as 0 exactly like
+// before, regardless of whether a guess exists for display.
+function formatGuessDisplay(rawCost, guess) {
   if (rawCost !== "?") return { text: escapeHtml(rawCost), isGuess: false };
-  const guess = costGuess(catKey, idx, rankIdx);
   if (!guess) return { text: "?", isGuess: false };
   const title = guess.manual
     ? `Estimated (very low confidence) — hand-picked pending wiki confirmation, not derived from other AAs. Not confirmed on the wiki.`
@@ -110,6 +111,20 @@ function costDisplay(catKey, idx, rankIdx, rawCost) {
     ? `Estimated (${guess.confidence} confidence) — no comparable AA found, interpolated between this AA's own known ranks. Not confirmed on the wiki.`
     : `Estimated (${guess.confidence} confidence) from ${guess.basedOn.join(", ")} — not confirmed on the wiki.`;
   return { text: `~${guess.value}`, isGuess: true, confidence: guess.confidence, basedOn: guess.basedOn, interpolated: !!guess.interpolated, manual: !!guess.manual, title };
+}
+
+// catKey-based lookup - one of the 3 currently-active class slots (or
+// general/archetype/special). Used by the tree, side panel, and Progression
+// (whose steps are always for an active or formerly-active selection).
+function costDisplay(catKey, idx, rankIdx, rawCost) {
+  return formatGuessDisplay(rawCost, rawCost === "?" ? costGuess(catKey, idx, rankIdx) : null);
+}
+
+// (scope, className)-based lookup, bypassing the active-slot requirement -
+// for Browse, which shows every class's AAs regardless of whether that
+// class is one of the 3 currently selected.
+function costDisplayScoped(scope, className, idx, rankIdx, rawCost) {
+  return formatGuessDisplay(rawCost, rawCost === "?" ? costGuessScoped(scope, className, idx, rankIdx) : null);
 }
 
 export function renderTree(catKey) {
@@ -316,6 +331,17 @@ function catKeyForBrowseLabel(catLabel) {
   return slot >= 0 ? CLASS_SLOT_KEYS[slot] : null;
 }
 
+// Cost guesses don't have that same "only while it's in an active slot"
+// limitation (costDisplayScoped looks up by scope/className directly), so
+// every Browse card can show its per-rank estimates regardless of whether
+// its class is currently selected.
+function scopeForBrowseLabel(catLabel) {
+  if (catLabel === "General") return { scope: "general", className: null };
+  if (catLabel === "Archetype") return { scope: "archetype", className: null };
+  if (catLabel === "Special") return { scope: "special", className: null };
+  return { scope: "class", className: catLabel };
+}
+
 export function renderBrowse() {
   const q = state.browseSearch.trim().toLowerCase();
   const filter = state.browseFilter;
@@ -349,11 +375,18 @@ export function renderBrowse() {
           const warn = !!(lockReason && lockReason.kind === "prereq");
           prereqInfo = ` &middot; <span class="prereq-info${warn ? " warn" : ""}">Requires: ${escapeHtml(aa.prereq)}</span>`;
         }
+        const { scope, className } = scopeForBrowseLabel(cat);
+        const costList = aa.costs.map((c, i) => {
+          const disp = costDisplayScoped(scope, className, idx, i, c);
+          return disp.isGuess
+            ? `<span class="is-estimate tier-${disp.confidence}" title="${escapeHtml(disp.title)}">${disp.text}</span>`
+            : disp.text;
+        }).join(" / ");
         return `
       <div class="browse-card">
         <div class="top"><span class="name">${escapeHtml(aa.name)}${aa.auto ? ' <span class="auto-badge">(AUTO)</span>' : ""}</span><span class="cat">${escapeHtml(cat)}</span></div>
         <div class="desc">${escapeHtml(aa.description)}</div>
-        <div class="info">Ranks: ${aa.ranks} &middot; Cost/rank: ${aa.costs.map(escapeHtml).join(" / ")} &middot; Level ${escapeHtml(aa.levelReq)}+${prereqInfo}</div>
+        <div class="info">Ranks: ${aa.ranks} &middot; Cost/rank: ${costList} &middot; Level ${escapeHtml(aa.levelReq)}+${prereqInfo}</div>
       </div>`;
       }).join("")
     : '<div class="empty">No AAs match your search.</div>';
@@ -635,6 +668,10 @@ export function renderProgression() {
     const key = expandKey(s);
     const expanded = canExpand && expandedSteps.has(key);
     const segClass = s.segmentColor ? ` segment-color-${s.segmentColor}` : "";
+    // Only meaningful while active (s.category is null otherwise, and an
+    // inactive step's stepCost is already forced to 0 regardless of the
+    // real cost - see computeProgressionSteps).
+    const stepDisp = s.active && s.aa ? costDisplay(s.category, s.idx, s.stepRank - 1, s.aa.costs[s.stepRank - 1]) : { isGuess: false };
     const row = `<div class="progression-row${s.active ? "" : " inactive"}${s.prereqWarn ? " prereq-warn-row" : ""}${segClass}" draggable="true" data-index="${s.index}">
       <span class="drag-handle" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
       <span class="step-num">${s.index + 1}</span>
@@ -644,7 +681,7 @@ export function renderProgression() {
       </span>
       ${s.prereqWarn ? '<span class="step-warn" title="Prerequisite not yet trained at this point in the sequence">&#9888;</span>' : ""}
       <span class="step-cost">
-        <span class="cost-this">+${s.stepCost} pt${s.stepCost === 1 ? "" : "s"}</span>
+        <span class="cost-this${stepDisp.isGuess ? ` is-estimate tier-${stepDisp.confidence}` : ""}"${stepDisp.isGuess ? ` title="${escapeHtml(stepDisp.title)}"` : ""}>+${stepDisp.isGuess ? stepDisp.text : s.stepCost} ${stepDisp.isGuess ? "pt(s)" : `pt${s.stepCost === 1 ? "" : "s"}`}</span>
         <span class="cost-total">${s.cumulative} total</span>
       </span>
       <span class="step-controls" draggable="false">
@@ -658,8 +695,15 @@ export function renderProgression() {
     </div>`;
     if (!expanded) return row;
     const nextRank = s.stepRank + 1;
-    return row + `<div class="next-rank-box progression-next-rank">
-        <div class="next-rank-title">Next Rank (${nextRank}/${s.aa.ranks}) &middot; costs <b>${escapeHtml(s.aa.costs[s.stepRank])}</b> pt(s)</div>
+    const nextRawCost = s.aa.costs[s.stepRank];
+    const nextDisp = s.category
+      ? costDisplay(s.category, s.idx, s.stepRank, nextRawCost)
+      : { text: escapeHtml(nextRawCost), isGuess: false };
+    const nextChip = nextDisp.isGuess
+      ? ` <span class="confidence-chip tier-${nextDisp.confidence}" title="${escapeHtml(nextDisp.title)}">${nextDisp.confidence}</span>`
+      : "";
+    return row + `<div class="next-rank-box progression-next-rank${nextDisp.isGuess ? " is-estimate" : ""}">
+        <div class="next-rank-title">Next Rank (${nextRank}/${s.aa.ranks}) &middot; costs <b class="${nextDisp.isGuess ? "is-estimate" : ""}" title="${nextDisp.isGuess ? escapeHtml(nextDisp.title) : ""}">${nextDisp.text}</b> pt(s)${nextChip}</div>
         <div class="desc">${highlightRankValue(applyPerRankTotal(s.aa.description, nextRank), nextRank)}</div>
       </div>`;
   });

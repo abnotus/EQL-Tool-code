@@ -264,6 +264,14 @@ export function costGuess(catKey, idx, rankIdx) {
   return costGuessFor(scope, className, idx, rankIdx);
 }
 
+// Same lookup as costGuess, but by (scope, className) directly rather than
+// one of the 3 active class slots — for callers like Browse that show every
+// class regardless of whether it's currently selected, where categoryToScopeClassName
+// would return null for a class sitting outside the active 3.
+export function costGuessScoped(scope, className, idx, rankIdx) {
+  return costGuessFor(scope, className, idx, rankIdx);
+}
+
 export function entryKey(scope, className, idx) {
   return `${scope}|${className || ""}|${idx}`;
 }
