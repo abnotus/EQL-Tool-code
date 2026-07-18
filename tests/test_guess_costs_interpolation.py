@@ -91,20 +91,31 @@ print("PASS: a non-monotonic-only pool at this rank count still yields no siblin
 # --- MANUAL_GUESSES must be reachable even for an AA with ZERO known ranks
 # of its own (the extreme evidence-free case manual exists for) - a future
 # wiki resync un-confirming an AA's own rank-1 cost is exactly this
-# scenario. Reuses the real "First Aid" manual entry (index 1-5 have manual
-# values; index 0 doesn't), with an all-"?" costs array standing in for
-# "even rank 1 is no longer confirmed". Before this was fixed,
-# guess_for_entry's `if not unknown or not known: return {}` early-returned
-# before MANUAL_GUESSES was ever consulted, for every rank, unconditionally. ---
-first_aid_manual = gc.MANUAL_GUESSES["First Aid"]
-entry6 = {"name": "First Aid", "ranks": 6, "costs": ["?", "?", "?", "?", "?", "?"]}
-g6 = gc.guess_for_entry(entry6, [])
-print("zero-known-ranks manual fallback case:", g6)
-assert 0 not in g6, "FAIL: index 0 has no MANUAL_GUESSES entry for First Aid, shouldn't get one"
-for idx, value in first_aid_manual.items():
-    assert g6[idx]["value"] == value and g6[idx]["confidence"] == "very-low" and g6[idx]["manual"] is True, \
-        f"FAIL: manual guess for index {idx} not reached with zero known ranks, got {g6.get(idx)}"
-print("PASS: MANUAL_GUESSES is reachable even when the AA has zero known ranks of its own")
+# scenario. Before this was fixed, guess_for_entry's
+# `if not unknown or not known: return {}` early-returned before
+# MANUAL_GUESSES was ever consulted, for every rank, unconditionally.
+#
+# A synthetic MANUAL_GUESSES entry, not a real AA's - pinning this to (say)
+# "First Aid" would tie the test's own validity to that entry still
+# existing, which is exactly the "breaks the instant the feature does its
+# job" failure mode the rest of this file avoids: the day First Aid's costs
+# get wiki-confirmed, its manual entry is deleted (as it should be), and a
+# test asserting against it would die with a KeyError that has nothing to
+# do with what's actually being tested here. Injected for this assertion's
+# duration only, removed immediately after. ---
+synthetic_manual = {1: 4, 3: 9}
+gc.MANUAL_GUESSES["__synthetic test AA__"] = synthetic_manual
+try:
+    entry6 = {"name": "__synthetic test AA__", "ranks": 4, "costs": ["?", "?", "?", "?"]}
+    g6 = gc.guess_for_entry(entry6, [])
+    print("zero-known-ranks manual fallback case:", g6)
+    assert 0 not in g6 and 2 not in g6, "FAIL: an index with no MANUAL_GUESSES entry shouldn't get one"
+    for idx, value in synthetic_manual.items():
+        assert g6[idx]["value"] == value and g6[idx]["confidence"] == "very-low" and g6[idx]["manual"] is True, \
+            f"FAIL: manual guess for index {idx} not reached with zero known ranks, got {g6.get(idx)}"
+    print("PASS: MANUAL_GUESSES is reachable even when the AA has zero known ranks of its own")
+finally:
+    del gc.MANUAL_GUESSES["__synthetic test AA__"]
 
 # Same zero-known-ranks scenario, but with no MANUAL_GUESSES entry at all -
 # must return {} cleanly, not crash and not invent a guess.
