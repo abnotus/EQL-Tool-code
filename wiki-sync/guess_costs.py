@@ -70,6 +70,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DATA_SRC = HERE.parent / "data.src.js"
 OUT_FILE = HERE.parent / "src" / "costGuesses.js"
+AA_IDS_SRC = HERE.parent / "src" / "aaIds.js"
 
 DATA_CATEGORY_START = re.compile(r'^(general|archetype|special):\s*\[')
 DATA_CLASS_START = re.compile(r'^"([^"]+)":\s*\[')
@@ -151,6 +152,33 @@ def parse_data_src():
     return out
 
 
+# parse_data_src is a regex over source text, same failure mode
+# build_minify.py's own invariant checkers guard against: a data.src.js
+# reformat it doesn't recognize makes it silently match far less than it
+# should, which looks identical to "the dataset shrank" - every downstream
+# guess would quietly get worse (a smaller reference_pool, fewer targets)
+# with no error anywhere. src/aaIds.js's AA_ID_TABLE is append-only and
+# never drops an entry even for an AA later removed from data.src.js (see
+# that file's own header), so its size is a safe upper-bound floor for how
+# many AAs should still parse out today - a small fraction below it is
+# normal (legitimate removals), a parser silently breaking is not.
+MIN_ENTRY_FRACTION_OF_ID_TABLE = 0.9
+
+
+def check_parse_sanity(entries):
+    id_table_size = len(re.findall(r'"[^"]+":\s*\d+', AA_IDS_SRC.read_text(encoding="utf-8")))
+    floor = int(id_table_size * MIN_ENTRY_FRACTION_OF_ID_TABLE)
+    if len(entries) < floor:
+        print(
+            f"ERROR: parse_data_src() only found {len(entries)} AA entries, but "
+            f"{AA_IDS_SRC} has {id_table_size} - the regex parser almost certainly "
+            "stopped matching data.src.js's current format rather than the dataset "
+            f"actually shrinking this much (expected at least {floor}). Fix the "
+            "parser before trusting anything it produces."
+        )
+        sys.exit(1)
+
+
 def slug_key_for(entries, i):
     """Same auto-vs-non-auto disambiguation keys.js/assign_aa_ids.py use for
     a repeated name within one (scope, className) bucket."""
@@ -215,21 +243,33 @@ def guess_for_entry(entry, reference_pool):
     whichever unknown ranks got a confident-enough guess (possibly empty).
     A rank neither sibling-matching nor bounded interpolation could reach
     falls through to MANUAL_GUESSES as an absolute last resort, tagged
-    confidence "very-low" with manual: True."""
+    confidence "very-low" with manual: True - including an AA with ZERO
+    known ranks of its own, which sibling-matching/interpolation can never
+    reach (both need at least one known rank to anchor against) but manual
+    still can, since it's evidence-free by design."""
     ranks = entry["ranks"]
     costs = entry["costs"]
     known = {i: int(c) for i, c in enumerate(costs) if c != "?" and i < ranks}
     unknown = [i for i, c in enumerate(costs) if c == "?" and i < ranks]
-    if not unknown or not known:
+    if not unknown:
         return {}
 
-    same_rank_siblings = [r for r in reference_pool if r["ranks"] == ranks]
-    monotonic_pool = [r for r in same_rank_siblings if r["monotonic"]]
-    # Fall back to the non-monotonic pool only if nothing normal is
-    # available at all - better than nothing, but never preferred.
-    pool = monotonic_pool if monotonic_pool else same_rank_siblings
-
-    matching = [r for r in pool if all(r["values"][i] == v for i, v in known.items())]
+    # Sibling-matching and interpolation both need at least one known rank to
+    # anchor against - with zero known ranks, `all(...)` over the empty
+    # known.items() below would be vacuously true and every sibling in the
+    # pool would "match", exactly the ungrounded guess this script exists to
+    # avoid. Only MANUAL_GUESSES (further down) can reach a rank when known
+    # is empty - that's the extreme case it exists for.
+    matching = []
+    if known:
+        # Non-monotonic siblings (Natural Durability's real 2/4/6/2, a cost
+        # DROP - see the module docstring) are excluded from matching
+        # entirely, no fallback to them even when no monotonic sibling
+        # exists at this rank count - an anomalous curve is exactly the
+        # evidence this filter exists to reject, not a last resort better
+        # than nothing.
+        same_rank_siblings = [r for r in reference_pool if r["ranks"] == ranks and r["monotonic"]]
+        matching = [r for r in same_rank_siblings if all(r["values"][i] == v for i, v in known.items())]
 
     result = {}
     for i in unknown:
@@ -338,6 +378,7 @@ def write_output(table, stats):
 
 def main():
     entries = parse_data_src()
+    check_parse_sanity(entries)
 
     reference_pool = []
     for i, e in enumerate(entries):
