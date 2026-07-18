@@ -1983,7 +1983,7 @@ const nextRank = s.stepRank + 1;
 const nextRawCost = s.aa.costs[s.stepRank];
 const nextDisp = s.category
 ? costDisplay(s.category, s.idx, s.stepRank, nextRawCost)
-: { text: escapeHtml(nextRawCost), isGuess: false };
+: costDisplayScoped(s.scope, s.className, s.idx, s.stepRank, nextRawCost);
 const nextChip = nextDisp.isGuess
 ? ` <span class="confidence-chip tier-${nextDisp.confidence}" title="${escapeHtml(nextDisp.title)}">${nextDisp.confidence}</span>`
 : "";

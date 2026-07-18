@@ -720,9 +720,14 @@ export function renderProgression() {
     if (!expanded) return row;
     const nextRank = s.stepRank + 1;
     const nextRawCost = s.aa.costs[s.stepRank];
+    // costDisplayScoped doesn't need an active slot the way costDisplay's
+    // catKey does (same reasoning as Browse - see scopeForBrowseLabel), so
+    // an inactive-class step still gets its estimate shown here even
+    // though its cost pill above stays plain (that one mirrors stepCost,
+    // which is real math forced to 0 for an inactive step regardless).
     const nextDisp = s.category
       ? costDisplay(s.category, s.idx, s.stepRank, nextRawCost)
-      : { text: escapeHtml(nextRawCost), isGuess: false };
+      : costDisplayScoped(s.scope, s.className, s.idx, s.stepRank, nextRawCost);
     const nextChip = nextDisp.isGuess
       ? ` <span class="confidence-chip tier-${nextDisp.confidence}" title="${escapeHtml(nextDisp.title)}">${nextDisp.confidence}</span>`
       : "";
