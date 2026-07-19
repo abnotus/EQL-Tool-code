@@ -101,6 +101,24 @@ with sync_playwright() as p:
     assert "~3" in summary_html and "is-estimate" in summary_html and "rank-highlight" in summary_html
     print("PASS: Summary shows the guess, bolded (it's the currently-held rank there)")
 
+    # --- Packrat: MANUAL_EFFECT_GUESSES, very-low tier - 7 guessed slots in
+    # a row (ranks 4-10), each independently styled/tooltipped. Confirms the
+    # manual fallback (not just algorithmic interpolation/sibling-matching)
+    # renders correctly for effects, same as it does for costs. ---
+    page.click('button[data-tab="general"]')
+    pr = page.locator(".node", has=page.locator(".name", has_text="Packrat"))
+    pr.click()
+    for _ in range(4):
+        page.click("#incBtn")
+        page.wait_for_timeout(20)
+    pr_desc = page.locator("#sidePanel .desc").first.inner_html()
+    print("Packrat desc html:", pr_desc)
+    for v in ("~20", "~25", "~30", "~35", "~40", "~45", "~50"):
+        assert v in pr_desc, f"FAIL: expected {v} in Packrat's description"
+    assert pr_desc.count('tier-very-low') == 7, "FAIL: expected all 7 guessed slots tagged very-low"
+    assert "hand-picked" in pr_desc
+    print("PASS: Packrat's 7 manual very-low effect guesses all render correctly")
+
     print("ERRORS:", errors)
     assert not errors
     browser.close()

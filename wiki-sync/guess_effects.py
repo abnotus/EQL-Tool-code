@@ -110,11 +110,37 @@ EFFECT_SIBLING_GROUPS = [
 
 # Hand-maintained fallback for slots the algorithm has no evidence for at
 # all - same last-resort role as guess_costs.py's MANUAL_GUESSES. Keyed by
-# (AA name, progression index) mapping to {rank_index: value}. Empty for
-# now - this script ships with the matching/interpolation machinery ready to
-# go, manual entries added later the same way costs' were (a follow-up pass
-# once there's a considered value for each remaining gap).
-MANUAL_EFFECT_GUESSES = {}
+# (AA name, progression index) mapping to {rank_index: value}. Curator
+# judgment calls made 2026-07-19 against the 14 decision points that came up
+# with zero algorithmic evidence (each AA's own known values, no plausible
+# sibling or bounded gap) - see the project's own history for that review
+# and the 3-option candidates each was chosen from. Same precedence
+# guarantee as everywhere else here: a real cross-AA match at any tier
+# always outranks a manual entry, automatically, the moment one exists.
+MANUAL_EFFECT_GUESSES = {
+    ("Adamant Will", 0): {2: 60, 3: 80},
+    ("Adamant Will", 1): {2: 45, 3: 60},
+    ("Alchemy Mastery", 0): {1: 20, 2: 40},
+    ("Baking Mastery", 0): {1: 20, 2: 40},
+    ("Blacksmithing Mastery", 0): {1: 20, 2: 40},
+    ("Brewing Mastery", 0): {1: 20, 2: 40},
+    ("Fletching Mastery", 0): {1: 20, 2: 40},
+    ("Jewel Craft Mastery", 0): {1: 20, 2: 40},
+    ("Pottery Mastery", 0): {1: 20, 2: 40},
+    ("Tailoring Mastery", 0): {1: 20, 2: 40},
+    ("Combat Stability", 0): {2: 10},
+    ("Innate Eminence", 0): {3: 8, 4: 10},
+    ("Innate Lung Capacity", 0): {1: 20, 2: 30},
+    ("Innate Metabolism", 0): {2: 140},
+    ("Innate Regeneration", 0): {5: 6, 6: 7},
+    ("Innate Spell Resistance", 0): {1: 4, 2: 6, 3: 8, 4: 10},
+    ("Packrat", 0): {3: 20, 4: 25, 5: 30, 6: 35, 7: 40, 8: 45, 9: 50},
+    ("Burst of Power", 0): {2: 15},
+    ("Spell Casting Subtlety", 0): {1: 10, 2: 15, 3: 20, 4: 25, 5: 30},
+    ("Banestrike", 0): {2: 6, 3: 8},
+    ("Jam Fest", 0): {1: 3, 2: 5},
+    ("Quick Evacuation", 0): {1: 20, 2: 30},
+}
 
 
 def slugify(name):

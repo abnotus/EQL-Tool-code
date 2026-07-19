@@ -213,7 +213,29 @@ const COST_GUESS_TABLE = {
 // guess never substitutes for a real value anywhere descriptions are
 // otherwise read (search, export text) - purely a display hint.
 const EFFECT_GUESS_TABLE = {
-  "general::combat-fury": { "0": { "1": { value: 3, confidence: "low", basedOn: [], interpolated: true } } }
+  "archetype::burst-of-power": { "0": { "2": { value: 15, confidence: "very-low", basedOn: [], manual: true } } },
+  "archetype::spell-casting-subtlety": { "0": { "1": { value: 10, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 15, confidence: "very-low", basedOn: [], manual: true }, "3": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "4": { value: 25, confidence: "very-low", basedOn: [], manual: true }, "5": { value: 30, confidence: "very-low", basedOn: [], manual: true } } },
+  "class:Bard:jam-fest": { "0": { "1": { value: 3, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 5, confidence: "very-low", basedOn: [], manual: true } } },
+  "class:Druid:quick-evacuation": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 30, confidence: "very-low", basedOn: [], manual: true } } },
+  "class:Wizard:quick-evacuation": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 30, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::adamant-will": { "0": { "2": { value: 60, confidence: "very-low", basedOn: [], manual: true }, "3": { value: 80, confidence: "very-low", basedOn: [], manual: true } }, "1": { "2": { value: 45, confidence: "very-low", basedOn: [], manual: true }, "3": { value: 60, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::alchemy-mastery": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 40, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::baking-mastery": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 40, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::blacksmithing-mastery": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 40, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::brewing-mastery": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 40, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::combat-fury": { "0": { "1": { value: 3, confidence: "low", basedOn: [], interpolated: true } } },
+  "general::combat-stability": { "0": { "2": { value: 10, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::fletching-mastery": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 40, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::innate-eminence": { "0": { "3": { value: 8, confidence: "very-low", basedOn: [], manual: true }, "4": { value: 10, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::innate-lung-capacity": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 30, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::innate-metabolism": { "0": { "2": { value: 140, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::innate-regeneration": { "0": { "5": { value: 6, confidence: "very-low", basedOn: [], manual: true }, "6": { value: 7, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::innate-spell-resistance": { "0": { "1": { value: 4, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 6, confidence: "very-low", basedOn: [], manual: true }, "3": { value: 8, confidence: "very-low", basedOn: [], manual: true }, "4": { value: 10, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::jewel-craft-mastery": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 40, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::packrat": { "0": { "3": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "4": { value: 25, confidence: "very-low", basedOn: [], manual: true }, "5": { value: 30, confidence: "very-low", basedOn: [], manual: true }, "6": { value: 35, confidence: "very-low", basedOn: [], manual: true }, "7": { value: 40, confidence: "very-low", basedOn: [], manual: true }, "8": { value: 45, confidence: "very-low", basedOn: [], manual: true }, "9": { value: 50, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::pottery-mastery": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 40, confidence: "very-low", basedOn: [], manual: true } } },
+  "general::tailoring-mastery": { "0": { "1": { value: 20, confidence: "very-low", basedOn: [], manual: true }, "2": { value: 40, confidence: "very-low", basedOn: [], manual: true } } },
+  "special::banestrike": { "0": { "2": { value: 6, confidence: "very-low", basedOn: [], manual: true }, "3": { value: 8, confidence: "very-low", basedOn: [], manual: true } } }
 };
 
 // Stable per-AA keys, derived from name (not array position), used at the
@@ -465,7 +487,8 @@ const USER_CHANGELOG = [
     date: "2026-07-19",
     items: [
       "New: pattern-inferred estimates now cover effect values too, not just costs — the \"?\" in something like \"Increases your critical hit chance by 1/?/5/10%.\" can show an estimate the same way an undocumented cost does, wherever a description appears (the side panel, Browse All AAs, Summary, and Progression's next-rank preview). Same confidence tiers, same tooltip, same guarantee: purely a display hint, never read by search or export text as anything but the original \"?\".",
-      "Data correction from a fresh wiki scrape: Packrat's ranks 2 and 3 weight-reduction values are now confirmed (10% and 15%)."
+      "Data correction from a fresh wiki scrape: Packrat's ranks 2 and 3 weight-reduction values are now confirmed (10% and 15%).",
+      "Hand-picked \"very low\" confidence estimates fill in the rest of the currently undocumented effect values — Adamant Will, the crafting Mastery AAs, the Innate line, Packrat's remaining ranks, and a handful of others — same lowest-priority, automatically-superseded-by-real-evidence guarantee as every other manual guess in the app."
     ]
   },
   {
