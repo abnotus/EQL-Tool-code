@@ -647,7 +647,7 @@ return isNaN(n) ? 0 : n;
 function escapeHtml(str) {
 return String(str == null ? "" : str)
 .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+.replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 function iconLetter(name) {
 return (name || "?").trim().charAt(0).toUpperCase();

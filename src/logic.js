@@ -13,9 +13,18 @@ export function costNum(c) {
 }
 
 export function escapeHtml(str) {
+  // '&apos;' (not the numeric '&#39;') deliberately - highlightRankValue
+  // below re-parses THIS function's own output for slash-separated
+  // progressions, and '&#39;' contains a digit pair ("39") that a
+  // progression regex immediately abutting an apostrophe could pull in as
+  // a phantom leading slot, misaligning every rank index by one. No
+  // current description has that exact adjacency, but '&apos;' is
+  // digit-free and just as valid in HTML5, so the entire divergence class
+  // is closed rather than guarded against for the one input that's been
+  // checked.
   return String(str == null ? "" : str)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
 export function iconLetter(name) {

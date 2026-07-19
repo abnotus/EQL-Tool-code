@@ -82,7 +82,14 @@ DATA_ENTRY_AUTORANKS = re.compile(r'\bautoRanks:\s*\d+')
 # highlightRankValue's own regex in src/logic.js (kept in sync by hand -
 # they parse the same text for the same purpose) - one or more numbers
 # (optionally decimal, optionally %-suffixed) or "?" placeholders, joined by
-# "/".
+# "/". The regex being identical isn't the whole story: this script parses
+# data.src.js's RAW description text, while highlightRankValue parses
+# escapeHtml's OUTPUT - a different string. escapeHtml uses '&apos;' rather
+# than the numeric '&#39;' specifically so that difference can never inject
+# a digit sequence next to the progression it's matching (see escapeHtml's
+# own comment) - if that ever changes, this comment is the reminder that
+# progression indices depend on the two parsers agreeing on more than just
+# their regex source.
 PROGRESSION_RE = re.compile(r'\d+(?:\.\d+)?%?(?:/(?:\d+(?:\.\d+)?%?|\?)){1,}')
 
 HIGH_MIN_SIBLINGS = 2
@@ -408,11 +415,17 @@ def main():
     check_parse_sanity(entries)
 
     # reference_progressions[(group_id, prog_idx, slot_count)] -> list of
-    # {"name", "values"} for every fully-known progression at that spot
-    # within that group. group_id is the group's own list identity (id()),
-    # fine since EFFECT_SIBLING_GROUPS is a fixed module-level constant.
+    # {"name", "identity", "values"} for every fully-known progression at
+    # that spot within that group. group_id is the group's own list
+    # identity (id()), fine since EFFECT_SIBLING_GROUPS is a fixed
+    # module-level constant. "identity" is the entry's own index into
+    # entries - NOT e["name"] - because a group can (and does: Quick
+    # Evacuation's Druid/Wizard copies) contain two different entries that
+    # share one name. Excluding a sibling by name would exclude every
+    # member of a same-named group from ever matching any other member -
+    # the exact pairing that group exists to enable.
     reference_progressions = {}
-    for e in entries:
+    for i, e in enumerate(entries):
         if e["auto"] or e["autoRanks"]:
             continue
         group = group_for_name(e["name"])
@@ -421,9 +434,9 @@ def main():
         for prog_idx, prog in enumerate(extract_progressions(e["description"])):
             if prog["unknown"]:
                 continue
-            values = [prog["known"][i] for i in range(len(prog["slots"]))]
+            values = [prog["known"][j] for j in range(len(prog["slots"]))]
             key = (id(group), prog_idx, len(prog["slots"]))
-            reference_progressions.setdefault(key, []).append({"name": e["name"], "values": values})
+            reference_progressions.setdefault(key, []).append({"name": e["name"], "identity": i, "values": values})
 
     table = {}
     targets = 0
@@ -443,7 +456,7 @@ def main():
             sibling_pool = []
             if group:
                 key = (id(group), prog_idx, len(prog["slots"]))
-                sibling_pool = [r for r in reference_progressions.get(key, []) if r["name"] != e["name"]]
+                sibling_pool = [r for r in reference_progressions.get(key, []) if r["identity"] != i]
             guesses = guess_for_progression(e["name"], prog_idx, prog, sibling_pool)
             if guesses:
                 by_prog[prog_idx] = guesses
