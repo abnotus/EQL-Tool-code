@@ -59,24 +59,24 @@ This is a diagnostic/generator, not an auto-updater of data.src.js itself:
 it never touches descriptions - see effectGuesses.js's own header for how
 the app guarantees a real confirmed value always wins over a stale guess.
 """
-import json
-import math
 import re
 import sys
 from collections import Counter
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-DATA_SRC = HERE.parent / "data.src.js"
-OUT_FILE = HERE.parent / "src" / "effectGuesses.js"
-AA_IDS_SRC = HERE.parent / "src" / "aaIds.js"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common import (  # noqa: E402
+    DATA_SRC, AA_IDS_SRC,
+    DATA_ENTRY_NAME, DATA_ENTRY_AUTO, DATA_ENTRY_AUTORANKS,
+    HIGH_MIN_SIBLINGS, MEDIUM_MAJORITY, LOW_MAJORITY,
+    iter_data_entries, check_parse_sanity, slug_key_for, id_key, js_string,
+    interpolate_bounded_gaps,
+)
 
-DATA_CATEGORY_START = re.compile(r'^(general|archetype|special):\s*\[')
-DATA_CLASS_START = re.compile(r'^"([^"]+)":\s*\[')
-DATA_ENTRY_NAME = re.compile(r'name:\s*"((?:[^"\\]|\\.)*)"')
+HERE = Path(__file__).resolve().parent
+OUT_FILE = HERE.parent / "src" / "effectGuesses.js"
+
 DATA_ENTRY_DESC = re.compile(r'description:\s*"((?:[^"\\]|\\.)*)"')
-DATA_ENTRY_AUTO = re.compile(r'\bauto:\s*true')
-DATA_ENTRY_AUTORANKS = re.compile(r'\bautoRanks:\s*\d+')
 
 # Matches the exact same slash-separated progression shape as
 # highlightRankValue's own regex in src/logic.js (kept in sync by hand -
@@ -91,10 +91,6 @@ DATA_ENTRY_AUTORANKS = re.compile(r'\bautoRanks:\s*\d+')
 # progression indices depend on the two parsers agreeing on more than just
 # their regex source.
 PROGRESSION_RE = re.compile(r'\d+(?:\.\d+)?%?(?:/(?:\d+(?:\.\d+)?%?|\?)){1,}')
-
-HIGH_MIN_SIBLINGS = 2
-MEDIUM_MAJORITY = 2.0 / 3.0
-LOW_MAJORITY = 0.5
 
 # Explicit, hand-verified groups of AAs whose descriptions are genuinely the
 # same underlying formula (confirmed by reading them, not detected by text
@@ -150,35 +146,15 @@ MANUAL_EFFECT_GUESSES = {
 }
 
 
-def slugify(name):
-    s = name.lower().replace("'", "")
-    s = re.sub(r'[^a-z0-9]+', '-', s).strip('-')
-    return s
-
-
 def parse_data_src():
     """Returns list of dicts: scope, className, name, description, auto,
     autoRanks — in AA_DATA order."""
-    text = DATA_SRC.read_text(encoding="utf-8")
-    current_cat = None
     out = []
-    for line in text.split("\n"):
-        s = line.strip()
-        m = DATA_CATEGORY_START.match(s)
-        if m:
-            current_cat = (m.group(1), None)
-            continue
-        m = DATA_CLASS_START.match(s)
-        if m:
-            current_cat = ("class", m.group(1))
-            continue
-        if s.startswith("classes:") or not s.startswith("{ name:"):
-            continue
+    for scope, className, s in iter_data_entries(DATA_SRC):
         nm = DATA_ENTRY_NAME.search(s)
         desc = DATA_ENTRY_DESC.search(s)
-        if not (nm and desc and current_cat):
+        if not (nm and desc):
             continue
-        scope, className = current_cat
         out.append({
             "scope": scope,
             "className": className,
@@ -188,44 +164,6 @@ def parse_data_src():
             "autoRanks": bool(DATA_ENTRY_AUTORANKS.search(s)),
         })
     return out
-
-
-# parse_data_src is a regex over source text, same failure mode
-# build_minify.py's own invariant checkers guard against - see
-# guess_costs.py's check_parse_sanity for the full reasoning. Same floor,
-# same source of truth (aaIds.js's AA_ID_TABLE size).
-MIN_ENTRY_FRACTION_OF_ID_TABLE = 0.9
-
-
-def check_parse_sanity(entries):
-    id_table_size = len(re.findall(r'"[^"]+":\s*\d+', AA_IDS_SRC.read_text(encoding="utf-8")))
-    floor = int(id_table_size * MIN_ENTRY_FRACTION_OF_ID_TABLE)
-    if len(entries) < floor:
-        print(
-            f"ERROR: parse_data_src() only found {len(entries)} AA entries, but "
-            f"{AA_IDS_SRC} has {id_table_size} - the regex parser almost certainly "
-            "stopped matching data.src.js's current format rather than the dataset "
-            f"actually shrinking this much (expected at least {floor}). Fix the "
-            "parser before trusting anything it produces."
-        )
-        sys.exit(1)
-
-
-def slug_key_for(entries, i):
-    """Same auto-vs-non-auto disambiguation keys.js/assign_aa_ids.py use for
-    a repeated name within one (scope, className) bucket."""
-    scope, className = entries[i]["scope"], entries[i]["className"]
-    bucket = [j for j, e in enumerate(entries) if e["scope"] == scope and e["className"] == className]
-    names = [entries[j]["name"] for j in bucket]
-    slugs = [slugify(n) for n in names]
-    pos = bucket.index(i)
-    base = slugs[pos]
-    same = [p for p, s in enumerate(slugs) if s == base]
-    if len(same) <= 1 or not entries[bucket[pos]]["auto"]:
-        return base
-    auto_siblings = [p for p in same if entries[bucket[p]]["auto"]]
-    auto_pos = auto_siblings.index(pos)
-    return f"{base}-auto" if auto_pos == 0 else f"{base}-auto-{auto_pos + 1}"
 
 
 def parse_num(slot):
@@ -258,31 +196,6 @@ def group_for_name(name):
         if name in group:
             return group
     return None
-
-
-def interpolate_bounded_gaps(known, unknown):
-    """Identical logic (and identical reasoning) to guess_costs.py's own -
-    see that script's docstring for the full explanation of why a bounded
-    gap (known values on both sides) is a fundamentally safer bet than
-    trailing extrapolation, and why this is capped at "low" regardless."""
-    if not known:
-        return {}
-    known_idxs = sorted(known.keys())
-    result = {}
-    for i in unknown:
-        below = max((k for k in known_idxs if k < i), default=None)
-        above = min((k for k in known_idxs if k > i), default=None)
-        if below is None or above is None:
-            continue
-        v_below, v_above = known[below], known[above]
-        frac = (i - below) / (above - below)
-        result[i] = {
-            "value": v_below + math.floor((v_above - v_below) * frac),
-            "confidence": "low",
-            "basedOn": [],
-            "interpolated": True,
-        }
-    return result
 
 
 def guess_for_progression(name, prog_idx, prog, sibling_progressions):
@@ -354,18 +267,6 @@ def guess_for_progression(name, prog_idx, prog, sibling_progressions):
     return result
 
 
-def id_key(scope, className, key):
-    return f"{scope}:{className or ''}:{key}"
-
-
-def js_string(s):
-    return json.dumps(s)
-
-
-def js_number(v):
-    return json.dumps(v)
-
-
 def write_output(table):
     lines = []
     for idk in sorted(table.keys()):
@@ -380,7 +281,7 @@ def write_output(table):
                 interp = ", interpolated: true" if g.get("interpolated") else ""
                 manual = ", manual: true" if g.get("manual") else ""
                 rank_parts.append(
-                    f'"{rank_idx}": {{ value: {js_number(g["value"])}, confidence: {js_string(g["confidence"])}, '
+                    f'"{rank_idx}": {{ value: {js_string(g["value"])}, confidence: {js_string(g["confidence"])}, '
                     f'basedOn: [{based_on}]{interp}{manual} }}'
                 )
             prog_parts.append(f'"{prog_idx}": {{ {", ".join(rank_parts)} }}')

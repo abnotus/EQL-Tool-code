@@ -93,7 +93,7 @@ function buildPayload() {
 // something that's already safely backed up, without needing a separate
 // "dirty" flag threaded through every mutation path - this just compares
 // on demand instead.
-export function activeBuildMatchesCurrent() {
+function activeBuildMatchesCurrent() {
   const id = getActiveBuildId();
   if (!id) return false;
   try {
@@ -108,7 +108,7 @@ export function activeBuildMatchesCurrent() {
 // one if id is given (the caller's "overwrite this slot" path). Returns the
 // slot's id, or null if localStorage rejected the write (full/unavailable),
 // in which case nothing was changed.
-export function saveBuildAs(name, id = null) {
+function saveBuildAs(name, id = null) {
   const targetId = id || genId();
   try {
     localStorage.setItem(BUILD_KEY_PREFIX + targetId, JSON.stringify(buildPayload()));

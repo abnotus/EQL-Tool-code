@@ -3,9 +3,10 @@
 Build pipeline: src/*.js (real ES modules)  ->  app.src.js (generated)  ->  app.js (minified)
                 data.src.js (hand-edited)    ------------------------->  data.js (minified)
 
-The app's logic is authored as genuine ES modules under src/ (state.js, logic.js,
-builds.js, dom.js, render.js, exportImport.js, events.js, main.js) using real import/export,
-so editors and readers get proper module boundaries. But native `<script type="module">`
+The app's logic is authored as genuine ES modules under src/ (see SRC_MODULE_ORDER
+below for the current file set and assembly order - not repeated here, since a list
+in a docstring drifts the moment a module is added and nothing catches it) using real
+import/export, so editors and readers get proper module boundaries. But native `<script type="module">`
 is blocked by CORS when index.html is opened via file:// in Chrome, and this app is
 deliberately built to work by just double-clicking index.html with no local server.
 So instead: this script assembles the src/ modules back into a single classic script

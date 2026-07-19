@@ -112,7 +112,7 @@ export function countMatches(catKey, query) {
   return getList(catKey).filter((aa) => aaMatchesQuery(aa, query)).length;
 }
 
-export function classSlotIndex(catKey) {
+function classSlotIndex(catKey) {
   const i = CLASS_SLOT_KEYS.indexOf(catKey);
   return i;
 }
@@ -178,7 +178,7 @@ function autoRanksOffset(aa) {
   return aa && aa.autoRanks ? Math.min(aa.autoRanks, aa.ranks) : 0;
 }
 
-export function getRanksStore(catKey) {
+function getRanksStore(catKey) {
   const slot = classSlotIndex(catKey);
   if (slot >= 0) {
     const className = state.selectedClasses[slot];
@@ -203,7 +203,7 @@ function getOwnedStore(scope, className) {
   return state.owned[scope];
 }
 
-export function ownedRank(scope, className, idx) {
+function ownedRank(scope, className, idx) {
   return getOwnedStore(scope, className)[idx] || 0;
 }
 
@@ -275,17 +275,17 @@ export function removeWaypoint(pts) {
 // Purchase-order entries key AA picks by class NAME (not slot position), since class
 // names are already unique and stable — swapping which slot a class occupies shouldn't
 // orphan its place in the progression list.
-export function scopeForCategory(category) {
+function scopeForCategory(category) {
   const slot = classSlotIndex(category);
   return slot >= 0 ? "class" : category;
 }
 
-export function classNameForCategory(category) {
+function classNameForCategory(category) {
   const slot = classSlotIndex(category);
   return slot >= 0 ? state.selectedClasses[slot] : null;
 }
 
-export function categoryToScopeClassName(category) {
+function categoryToScopeClassName(category) {
   const slot = classSlotIndex(category);
   return slot >= 0 ? { scope: "class", className: state.selectedClasses[slot] } : { scope: category, className: null };
 }
@@ -324,25 +324,25 @@ export function effectGuessScoped(scope, className, idx, progIdx, rankIdx) {
   return effectGuessFor(scope, className, idx, progIdx, rankIdx);
 }
 
-export function entryKey(scope, className, idx) {
+function entryKey(scope, className, idx) {
   return `${scope}|${className || ""}|${idx}`;
 }
 
 // Which category key currently displays this entry's class, or null if that class
 // isn't in any of the 3 active slots right now.
-export function resolveEntryCategory(entry) {
+function resolveEntryCategory(entry) {
   if (entry.scope !== "class") return entry.scope;
   const slot = state.selectedClasses.indexOf(entry.className);
   return slot >= 0 ? CLASS_SLOT_KEYS[slot] : null;
 }
 
-export function pushPurchase(category, idx) {
+function pushPurchase(category, idx) {
   state.purchaseOrder.push({ scope: scopeForCategory(category), className: classNameForCategory(category), idx });
 }
 
 // Returns the removed entry and the array position it was removed from (needed to
 // restore it to the same spot later), or null if no matching entry was found.
-export function popLastPurchase(category, idx) {
+function popLastPurchase(category, idx) {
   const scope = scopeForCategory(category);
   const className = classNameForCategory(category);
   for (let i = state.purchaseOrder.length - 1; i >= 0; i--) {
@@ -503,7 +503,7 @@ export function estimatedExtraPoints() {
 // "Requires X rank 1/2/3" (matching the wiki's own phrasing for rank-synced
 // prereqs, e.g. Destructive Cascade needing the matching Critical Affliction
 // rank) instead requires source rank K to be gated on target rank K.
-export function parsePrereqText(text) {
+function parsePrereqText(text) {
   if (!text) return null;
   const m = text.match(/^Requires\s+(.+?)\s+(?:rank|(?:at\s+)?level)\s+(\d+(?:\/\d+)*)\s*$/i);
   if (!m) return null;

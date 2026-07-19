@@ -1,6 +1,6 @@
 // Entry point: wires everything together and boots the app on DOMContentLoaded.
 
-import { loadLocal, applyLoaded, saveLocal, loadAndApplyOwned, DISCLAIMER_DISMISSED_KEY } from "./state.js";
+import { loadLocal, applyLoaded, saveLocal, loadAndApplyOwned, DISCLAIMER_DISMISSED_KEY, cleanupStaleStorageKeys } from "./state.js";
 import { cacheDom, el } from "./dom.js";
 import { populateStaticControls, renderAll, showToast } from "./render.js";
 import { findInvalidatedPicks, reconcilePurchaseOrderCounts } from "./logic.js";
@@ -29,6 +29,7 @@ async function init() {
   // the last.
   const shared = await applySharedBuildFromUrl(localResult);
   wireEvents();
+  cleanupStaleStorageKeys();
   try {
     if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");
   } catch (e) {

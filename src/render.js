@@ -8,7 +8,7 @@ import {
   getList, effectiveRank, structuralLockReason, resolvePrereqTarget, getBlockReason,
   isDependedOn, attemptIncrement, attemptDecrement, countPicked, computeProgressionSteps,
   costNum, spentPoints, undoLastMutation, canUndo, moveEntry, setOwnedRank, performReset,
-  aaMatchesQuery, countMatches, heldRankInvalidReason, findInvalidatedPicks, loadIssuesSuffix,
+  aaMatchesQuery, countMatches, heldRankInvalidReason, loadIssuesSuffix,
   hasAnyOwned, computeProgressionTimeline, addOrUpdateWaypoint, removeWaypoint, costGuess, costGuessScoped,
   estimatedExtraPoints, effectGuess, effectGuessScoped, guessTitle
 } from "./logic.js";
@@ -40,7 +40,7 @@ export function renderAll() {
   }
 }
 
-export function renderTopbar() {
+function renderTopbar() {
   populateClassSelects();
   el.levelInput.value = state.charLevel;
   el.totalPointsInput.value = state.totalPoints;
@@ -87,7 +87,7 @@ export function populateClassSelects() {
   });
 }
 
-export function renderTabs() {
+function renderTabs() {
   const tabDefs = [
     ...AA_CATEGORY_KEYS.map((key) => ({ key, label: shortCategoryLabel(key) })),
     { key: "summary", label: "Summary" },
@@ -265,7 +265,7 @@ export function renderTree(catKey) {
   }
 }
 
-export function renderSidePanel() {
+function renderSidePanel() {
   const sel = state.selectedNode;
   if (!sel) {
     el.sidePanel.innerHTML = '<div class="empty">Select an AA node to see its details and spend points.</div>';
@@ -425,7 +425,7 @@ export function renderBrowse() {
     : '<div class="empty">No AAs match your search.</div>';
 }
 
-export function renderSummary() {
+function renderSummary() {
   const spent = spentPoints();
   const remaining = state.totalPoints - spent;
   el.summaryHeader.innerHTML = `<div class="summary-meta">Classes: <b>${state.selectedClasses.map(escapeHtml).join(" / ")}</b> &middot; Character Level <b>${state.charLevel}</b> &middot; Points Spent: <b>${spent} / ${state.totalPoints}</b> (${remaining} remaining)</div>`;
@@ -912,7 +912,7 @@ export function undoLast() {
   applyAttempt(undoLastMutation());
 }
 
-export function moveProgressionEntry(index, dir) {
+function moveProgressionEntry(index, dir) {
   const target = index + dir;
   if (target < 0 || target >= state.purchaseOrder.length) return;
   const a = state.purchaseOrder[index];
@@ -936,7 +936,7 @@ export function moveProgressionEntry(index, dir) {
 // row you drop simply renders as rank 1 afterward. No corruption either way -
 // but this stops being true the moment an entry starts carrying its own rank,
 // so revisit this if that ever changes.
-export function moveProgressionEntryTo(fromIndex, toIndex) {
+function moveProgressionEntryTo(fromIndex, toIndex) {
   if (toIndex > fromIndex) toIndex -= 1; // account for the shift left after removal
   if (fromIndex === toIndex) return;
   moveEntry(fromIndex, toIndex);

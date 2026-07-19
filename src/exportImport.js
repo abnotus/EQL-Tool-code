@@ -397,7 +397,7 @@ export function saveExportAsTxt() {
 // whole pasted share link (?build=... pulled out of it), or just the bare
 // code on its own — standard base64 (export text) or base64url (share
 // links), so pasting any of the things this app itself produces works.
-export function extractBuildCode(text) {
+function extractBuildCode(text) {
   const trimmed = text.trim();
   const m = trimmed.match(/BUILD_CODE:(\S+)/);
   if (m) return m[1];

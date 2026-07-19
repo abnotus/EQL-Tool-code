@@ -427,6 +427,17 @@ const SAVE_FORMAT_VERSION = 4;
 const STORAGE_KEY = "eql_aa_builder_v1";
 const OWNED_STORAGE_KEY = "eql_aa_owned_v1";
 const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed_v4";
+const STALE_DISCLAIMER_KEYS = [
+"eql_aa_disclaimer_dismissed",
+"eql_aa_disclaimer_dismissed_v2",
+"eql_aa_disclaimer_dismissed_v3",
+];
+function cleanupStaleStorageKeys() {
+try {
+STALE_DISCLAIMER_KEYS.forEach((k) => localStorage.removeItem(k));
+} catch (e) {
+}
+}
 const LAST_SEEN_VERSION_KEY = "eql_aa_last_seen_version";
 const CLASS_SLOT_KEYS = ["classSlot0", "classSlot1", "classSlot2"];
 const AA_CATEGORY_KEYS = ["general", "archetype", ...CLASS_SLOT_KEYS, "special"];
@@ -2853,6 +2864,7 @@ const ownedResult = loadAndApplyOwned(rawLocal);
 localResult.droppedRanks += ownedResult.droppedOwned;
 const shared = await applySharedBuildFromUrl(localResult);
 wireEvents();
+cleanupStaleStorageKeys();
 try {
 if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");
 } catch (e) {

@@ -60,29 +60,25 @@ This is a diagnostic/generator, not an auto-updater of data.src.js itself:
 it never touches costs — see costGuesses.js's own header for how the app
 guarantees a real confirmed value always wins over a stale guess.
 """
-import json
-import math
 import re
 import sys
 from collections import Counter
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-DATA_SRC = HERE.parent / "data.src.js"
-OUT_FILE = HERE.parent / "src" / "costGuesses.js"
-AA_IDS_SRC = HERE.parent / "src" / "aaIds.js"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common import (  # noqa: E402
+    DATA_SRC, AA_IDS_SRC,
+    DATA_ENTRY_NAME, DATA_ENTRY_AUTO, DATA_ENTRY_AUTORANKS,
+    HIGH_MIN_SIBLINGS, MEDIUM_MAJORITY, LOW_MAJORITY,
+    iter_data_entries, check_parse_sanity, slug_key_for, id_key, js_string,
+    interpolate_bounded_gaps,
+)
 
-DATA_CATEGORY_START = re.compile(r'^(general|archetype|special):\s*\[')
-DATA_CLASS_START = re.compile(r'^"([^"]+)":\s*\[')
-DATA_ENTRY_NAME = re.compile(r'name:\s*"((?:[^"\\]|\\.)*)"')
+HERE = Path(__file__).resolve().parent
+OUT_FILE = HERE.parent / "src" / "costGuesses.js"
+
 DATA_ENTRY_RANKS = re.compile(r'\branks:\s*(\d+)')
 DATA_ENTRY_COSTS = re.compile(r'\bcosts:\s*\[([^\]]*)\]')
-DATA_ENTRY_AUTO = re.compile(r'\bauto:\s*true')
-DATA_ENTRY_AUTORANKS = re.compile(r'\bautoRanks:\s*\d+')
-
-HIGH_MIN_SIBLINGS = 2
-MEDIUM_MAJORITY = 2.0 / 3.0
-LOW_MAJORITY = 0.5
 
 # Hand-maintained fallback for slots the algorithm has no evidence for at
 # all (no matching sibling, no bounded gap either) - see the module
@@ -106,12 +102,6 @@ MANUAL_GUESSES = {
 }
 
 
-def slugify(name):
-    s = name.lower().replace("'", "")
-    s = re.sub(r'[^a-z0-9]+', '-', s).strip('-')
-    return s
-
-
 def parse_costs(raw):
     return [c.strip().strip('"') for c in raw.split(",") if c.strip()]
 
@@ -119,27 +109,13 @@ def parse_costs(raw):
 def parse_data_src():
     """Returns list of dicts: scope, className, name, ranks, costs (list of
     str, '?' for unknown), auto, autoRanks — in AA_DATA order."""
-    text = DATA_SRC.read_text(encoding="utf-8")
-    current_cat = None
     out = []
-    for line in text.split("\n"):
-        s = line.strip()
-        m = DATA_CATEGORY_START.match(s)
-        if m:
-            current_cat = (m.group(1), None)
-            continue
-        m = DATA_CLASS_START.match(s)
-        if m:
-            current_cat = ("class", m.group(1))
-            continue
-        if s.startswith("classes:") or not s.startswith("{ name:"):
-            continue
+    for scope, className, s in iter_data_entries(DATA_SRC):
         nm = DATA_ENTRY_NAME.search(s)
         rk = DATA_ENTRY_RANKS.search(s)
         ct = DATA_ENTRY_COSTS.search(s)
-        if not (nm and rk and ct and current_cat):
+        if not (nm and rk and ct):
             continue
-        scope, className = current_cat
         out.append({
             "scope": scope,
             "className": className,
@@ -152,88 +128,8 @@ def parse_data_src():
     return out
 
 
-# parse_data_src is a regex over source text, same failure mode
-# build_minify.py's own invariant checkers guard against: a data.src.js
-# reformat it doesn't recognize makes it silently match far less than it
-# should, which looks identical to "the dataset shrank" - every downstream
-# guess would quietly get worse (a smaller reference_pool, fewer targets)
-# with no error anywhere. src/aaIds.js's AA_ID_TABLE is append-only and
-# never drops an entry even for an AA later removed from data.src.js (see
-# that file's own header), so its size is a safe upper-bound floor for how
-# many AAs should still parse out today - a small fraction below it is
-# normal (legitimate removals), a parser silently breaking is not.
-MIN_ENTRY_FRACTION_OF_ID_TABLE = 0.9
-
-
-def check_parse_sanity(entries):
-    id_table_size = len(re.findall(r'"[^"]+":\s*\d+', AA_IDS_SRC.read_text(encoding="utf-8")))
-    floor = int(id_table_size * MIN_ENTRY_FRACTION_OF_ID_TABLE)
-    if len(entries) < floor:
-        print(
-            f"ERROR: parse_data_src() only found {len(entries)} AA entries, but "
-            f"{AA_IDS_SRC} has {id_table_size} - the regex parser almost certainly "
-            "stopped matching data.src.js's current format rather than the dataset "
-            f"actually shrinking this much (expected at least {floor}). Fix the "
-            "parser before trusting anything it produces."
-        )
-        sys.exit(1)
-
-
-def slug_key_for(entries, i):
-    """Same auto-vs-non-auto disambiguation keys.js/assign_aa_ids.py use for
-    a repeated name within one (scope, className) bucket."""
-    scope, className = entries[i]["scope"], entries[i]["className"]
-    bucket = [j for j, e in enumerate(entries) if e["scope"] == scope and e["className"] == className]
-    names = [entries[j]["name"] for j in bucket]
-    slugs = [slugify(n) for n in names]
-    pos = bucket.index(i)
-    base = slugs[pos]
-    same = [p for p, s in enumerate(slugs) if s == base]
-    if len(same) <= 1 or not entries[bucket[pos]]["auto"]:
-        return base
-    auto_siblings = [p for p in same if entries[bucket[p]]["auto"]]
-    auto_pos = auto_siblings.index(pos)
-    return f"{base}-auto" if auto_pos == 0 else f"{base}-auto-{auto_pos + 1}"
-
-
 def is_monotonic(values):
     return all(values[i] <= values[i + 1] for i in range(len(values) - 1))
-
-
-def interpolate_bounded_gaps(known, unknown):
-    """A DIFFERENT, weaker kind of evidence than sibling matching: for an
-    unknown rank strictly between two ranks THIS SAME AA already has real
-    numbers for, linearly interpolate against those two anchors and floor to
-    an integer - e.g. Combat Fury's (1, ?, 4, 6) has no ranks=4 sibling
-    starting at 1 to corroborate against, but rank 2 is still boxed in on
-    both sides by real numbers (1 and 4), floor(1 + (4-1)*0.5) = 2.
-
-    Deliberately only for a gap with a known value on BOTH sides - bounded
-    interpolation and open-ended extrapolation are not the same risk.
-    Adamant Will's own (2, 4, 6, ?) has nothing after the gap to bound it;
-    guessing from its own trend alone is exactly the mistake this whole
-    script exists to avoid (see the module docstring) - a trailing/leading
-    gap past every known value is left alone here, only sibling matching
-    (or nothing) applies to it. Never returns a confidence above "low": zero
-    external corroboration, purely this AA's own two endpoints."""
-    if not known:
-        return {}
-    known_idxs = sorted(known.keys())
-    result = {}
-    for i in unknown:
-        below = max((k for k in known_idxs if k < i), default=None)
-        above = min((k for k in known_idxs if k > i), default=None)
-        if below is None or above is None:
-            continue
-        v_below, v_above = known[below], known[above]
-        frac = (i - below) / (above - below)
-        result[i] = {
-            "value": v_below + math.floor((v_above - v_below) * frac),
-            "confidence": "low",
-            "basedOn": [],
-            "interpolated": True,
-        }
-    return result
 
 
 def guess_for_entry(entry, reference_pool):
@@ -325,14 +221,6 @@ def guess_for_entry(entry, reference_pool):
             entry_out["manual"] = True
         result[i] = entry_out
     return result
-
-
-def id_key(scope, className, key):
-    return f"{scope}:{className or ''}:{key}"
-
-
-def js_string(s):
-    return json.dumps(s)
 
 
 def write_output(table, stats):

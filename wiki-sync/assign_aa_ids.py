@@ -25,81 +25,38 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common import DATA_SRC, DATA_ENTRY_NAME, DATA_ENTRY_AUTO, iter_data_entries, slug_key_for, id_key  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
-DATA_SRC = HERE.parent / "data.src.js"
 IDS_FILE = HERE.parent / "src" / "aaIds.js"
-
-DATA_CATEGORY_START = re.compile(r'^(general|archetype|special):\s*\[')
-DATA_CLASS_START = re.compile(r'^"([^"]+)":\s*\[')
-DATA_ENTRY_NAME = re.compile(r'name:\s*"((?:[^"\\]|\\.)*)"')
-DATA_ENTRY_AUTO = re.compile(r'\bauto:\s*true')
-
-
-def slugify(name):
-    s = name.lower().replace("'", "")
-    s = re.sub(r'[^a-z0-9]+', '-', s).strip('-')
-    return s
 
 
 def parse_data_src():
-    """Returns list of (scope, className, name, auto) in AA_DATA order."""
-    text = DATA_SRC.read_text(encoding="utf-8")
-    current_cat = None
+    """Returns list of dicts: scope, className, name, auto — in AA_DATA
+    order."""
     out = []
-    for line in text.split("\n"):
-        s = line.strip()
-        m = DATA_CATEGORY_START.match(s)
-        if m:
-            current_cat = (m.group(1), None)
-            continue
-        m = DATA_CLASS_START.match(s)
-        if m:
-            current_cat = ("class", m.group(1))
-            continue
-        if s.startswith("classes:") or not s.startswith("{ name:"):
-            continue
+    for scope, className, s in iter_data_entries(DATA_SRC):
         nm = DATA_ENTRY_NAME.search(s)
-        if not nm or not current_cat:
+        if not nm:
             continue
-        auto = bool(DATA_ENTRY_AUTO.search(s))
-        scope, className = current_cat
-        out.append((scope, className, nm.group(1), auto))
+        out.append({
+            "scope": scope,
+            "className": className,
+            "name": nm.group(1),
+            "auto": bool(DATA_ENTRY_AUTO.search(s)),
+        })
     return out
 
 
 def compute_keys(entries):
-    """
-    entries: list of (scope, className, name, auto) in AA_DATA order.
-    Returns list of (scope, className, key) with the same auto-vs-non-auto
-    disambiguation keys.js's keyForEntryIdx applies for a repeated name
-    within one (scope, className) bucket.
-    """
-    buckets = {}
-    for i, (scope, className, name, auto) in enumerate(entries):
-        buckets.setdefault((scope, className), []).append(i)
-
-    result = [None] * len(entries)
-    for (scope, className), idxs in buckets.items():
-        names = [entries[i][2] for i in idxs]
-        autos = [entries[i][3] for i in idxs]
-        slugs = [slugify(n) for n in names]
-        for pos, i in enumerate(idxs):
-            base = slugs[pos]
-            same = [j for j in range(len(idxs)) if slugs[j] == base]
-            if len(same) <= 1:
-                key = base
-            elif not autos[pos]:
-                key = base
-            else:
-                auto_siblings = [j for j in same if autos[j]]
-                auto_pos = auto_siblings.index(pos)
-                key = f"{base}-auto" if auto_pos == 0 else f"{base}-auto-{auto_pos + 1}"
-            result[i] = (scope, className, key)
-    return result
-
-
-def id_key(scope, className, key):
-    return f"{scope}:{className or ''}:{key}"
+    """entries: list of dicts (scope, className, name, auto) in AA_DATA
+    order, as returned by parse_data_src. Returns list of
+    (scope, className, key), one per entry, using the identity function
+    every wiki-sync script shares (see wiki-sync/common.py's slug_key_for -
+    the same auto-vs-non-auto disambiguation src/keys.js's keyForEntryIdx
+    applies for a repeated name within one (scope, className) bucket)."""
+    return [(e["scope"], e["className"], slug_key_for(entries, i)) for i, e in enumerate(entries)]
 
 
 def load_existing_table():

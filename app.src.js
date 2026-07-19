@@ -601,6 +601,26 @@ const OWNED_STORAGE_KEY = "eql_aa_owned_v1";
 // the only way to force a re-acknowledgment is a new key nobody's set yet.
 // v2 added the pattern-inferred cost estimate mention.
 const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed_v4";
+// Every prior wording's dismiss flag, orphaned in a long-time user's
+// storage forever the moment a rewording bumps DISCLAIMER_DISMISSED_KEY -
+// nothing ever reads these again, they just sit there. Removed once on
+// boot (see cleanupStaleStorageKeys). A flat list, not derived from the
+// current version number: if a future v5 bump forgets to add v4 here, the
+// cost is a few stray bytes staying in storage, not a functional bug.
+const STALE_DISCLAIMER_KEYS = [
+  "eql_aa_disclaimer_dismissed",
+  "eql_aa_disclaimer_dismissed_v2",
+  "eql_aa_disclaimer_dismissed_v3",
+];
+
+function cleanupStaleStorageKeys() {
+  try {
+    STALE_DISCLAIMER_KEYS.forEach((k) => localStorage.removeItem(k));
+  } catch (e) {
+    // storage unavailable - nothing to clean up, nothing to fail on
+  }
+}
+
 const LAST_SEEN_VERSION_KEY = "eql_aa_last_seen_version";
 const CLASS_SLOT_KEYS = ["classSlot0", "classSlot1", "classSlot2"];
 // Canonical display/iteration order for the 6 real AA categories (excludes the
@@ -4256,6 +4276,7 @@ async function init() {
   // the last.
   const shared = await applySharedBuildFromUrl(localResult);
   wireEvents();
+  cleanupStaleStorageKeys();
   try {
     if (!localStorage.getItem(DISCLAIMER_DISMISSED_KEY)) el.disclaimerBanner.classList.remove("hidden");
   } catch (e) {
