@@ -101,7 +101,7 @@ To make a change:
 
 ## Testing
 
-`tests/` has a data-independent Python unit test for `wiki-sync/guess_costs.py`'s core logic, plus a handful of Playwright browser tests that drive the actual app (cost-guess rendering across every tab, the topbar's blended estimate total, the disclaimer banner's dismiss-key versioning). See `tests/README.md` for prerequisites and how to run them — none are wired into CI, so run the relevant ones by hand after touching the cost-guessing feature or anything it renders through.
+`tests/` has data-independent Python unit tests for `wiki-sync/guess_costs.py`'s and `wiki-sync/guess_effects.py`'s core logic, plus a handful of Playwright browser tests that drive the actual app (cost- and effect-guess rendering across every tab, the topbar's blended estimate total, the disclaimer banner's dismiss-key versioning). See `tests/README.md` for prerequisites and how to run them — none are wired into CI, so run the relevant ones by hand after touching either guessing feature or anything it renders through.
 
 ## Deployment
 
