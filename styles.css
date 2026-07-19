@@ -136,17 +136,6 @@ select:focus, input:focus {
   color: var(--estimate-high);
 }
 
-.points-display .remaining-note {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--text-dim);
-}
-
-.points-display .remaining-note.over {
-  color: #e6503f;
-  font-weight: 600;
-}
-
 /* Aggregates across however many different confidence tiers are currently
    purchased-but-unconfirmed, so - unlike the per-rank displays - a single
    tier color wouldn't mean anything here. Reuses the same flat treatment

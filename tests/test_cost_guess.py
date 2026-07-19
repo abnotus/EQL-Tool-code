@@ -63,19 +63,21 @@ with sync_playwright() as p:
 
     # --- Buying the guessed rank must cost exactly costNum('?') == 0, not
     # the guessed 9 - guesses must never leak into real point math. The
-    # topbar's headline number is now allowed to blend in the guess for
-    # display (see test_estimated_total.py), but "remaining" is the number
-    # that's guaranteed to stay real - check that one, not spentValue's text. ---
-    remaining_before = page.locator("#remainingValue").inner_text()
+    # topbar's headline number blends in the guess for display (see
+    # test_estimated_total.py); Progression's own per-step running total
+    # (built straight from costNum(), never a guess) is the number
+    # guaranteed to stay real - check that one directly. ---
     page.click("#incBtn")  # buy rank 4 (real cost "?", math treats as 0)
     page.wait_for_timeout(50)
-    remaining_after = page.locator("#remainingValue").inner_text()
-    print("remaining before/after buying the guessed rank (must be identical, cost='?' -> 0):", remaining_before, remaining_after)
-    assert remaining_after == remaining_before, f"FAIL: a guess leaked into real cost math, remaining changed to {remaining_after}"
     spent_after = page.locator("#spentValue").inner_text()
-    print("spentValue after buying the guessed rank (now blends in the guess for display):", spent_after)
+    print("spentValue after buying the guessed rank (blends in the guess for display):", spent_after)
     assert spent_after == "~21", "FAIL: expected the headline to blend real 12 + guessed 9"
-    print("PASS: the guessed value never affects spentPoints()/remaining - real math still treats '?' as 0, only the headline display blends it")
+    page.click('button[data-tab="progression"]')
+    page.wait_for_timeout(50)
+    real_total = page.locator(".progression-row .cost-total").last.inner_text()
+    print("Progression's real running total after buying the guessed rank (must stay real 12, not 21):", real_total)
+    assert real_total == "12 total", f"FAIL: a guess leaked into real cost math, running total shows {real_total}"
+    print("PASS: the guessed value never affects spentPoints() anywhere in the app - real math still treats '?' as 0, only the topbar headline blends it")
 
     # --- Combat Fury: this WAS the live example of a low-confidence,
     # interpolated guess (rank 2 boxed in by known ranks 1 and 3) - a fresh

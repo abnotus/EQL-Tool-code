@@ -9,10 +9,7 @@ export function cacheDom() {
     document.getElementById("classSelect2")
   ];
   el.levelInput = document.getElementById("levelInput");
-  el.totalPointsInput = document.getElementById("totalPointsInput");
   el.spentValue = document.getElementById("spentValue");
-  el.totalDisplayValue = document.getElementById("totalDisplayValue");
-  el.remainingValue = document.getElementById("remainingValue");
   el.estimatedNote = document.getElementById("estimatedNote");
   el.browseToggle = document.getElementById("browseToggle");
   el.exportBtn = document.getElementById("exportBtn");

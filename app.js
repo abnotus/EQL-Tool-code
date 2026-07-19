@@ -332,6 +332,13 @@ return prog ? (prog[rankIdx] || null) : null;
 }
 const USER_CHANGELOG = [
 {
+version: "1.6.2",
+date: "2026-07-19",
+items: [
+"Removed the \"Total AA Points\" field and the point cap it enforced — the topbar now just shows points spent, with no artificial ceiling to set or bump into. Waypoints already cover marking a point total worth planning around, so this was one less number to manage for no real benefit."
+]
+},
+{
 version: "1.6.1",
 date: "2026-07-19",
 items: [
@@ -422,7 +429,7 @@ items: [
 ]
 }
 ];
-const MAX_TOTAL_POINTS = 100000;
+const MAX_WAYPOINT_PTS = 100000;
 const SAVE_FORMAT_VERSION = 4;
 const STORAGE_KEY = "eql_aa_builder_v1";
 const OWNED_STORAGE_KEY = "eql_aa_owned_v1";
@@ -444,7 +451,6 @@ const AA_CATEGORY_KEYS = ["general", "archetype", ...CLASS_SLOT_KEYS, "special"]
 let state = {
 selectedClasses: [CLASS_LIST[0], CLASS_LIST[1], CLASS_LIST[2]],
 charLevel: 50,
-totalPoints: 1000,
 ranks: { general: {}, archetype: {}, special: {}, classes: {} },
 purchaseOrder: [],
 owned: { general: {}, archetype: {}, special: {}, classes: {} },
@@ -544,7 +550,7 @@ else if (entry && typeof entry === "object") { rawPts = entry.pts; rawLabel = en
 else return;
 const pts = parseInt(rawPts, 10);
 if (!Number.isFinite(pts) || pts < 0) return;
-const clamped = Math.min(pts, MAX_TOTAL_POINTS);
+const clamped = Math.min(pts, MAX_WAYPOINT_PTS);
 const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim().slice(0, 60) : null;
 const color = typeof rawColor === "string" && WAYPOINT_COLOR_KEYS.has(rawColor) ? rawColor : null;
 byPts.set(clamped, { label, color });
@@ -560,7 +566,6 @@ const payload = {
 v: SAVE_FORMAT_VERSION,
 selectedClasses: state.selectedClasses,
 charLevel: state.charLevel,
-totalPoints: state.totalPoints,
 ranks: serializeRanks(state.ranks),
 purchaseOrder: serializePurchaseOrder(state.purchaseOrder),
 waypoints: state.waypoints
@@ -602,9 +607,6 @@ state.selectedClasses = loaded.selectedClasses.slice();
 }
 if (typeof loaded.charLevel === "number" && !isNaN(loaded.charLevel)) {
 state.charLevel = Math.max(1, Math.min(50, loaded.charLevel));
-}
-if (typeof loaded.totalPoints === "number" && !isNaN(loaded.totalPoints)) {
-state.totalPoints = Math.max(0, Math.min(MAX_TOTAL_POINTS, loaded.totalPoints));
 }
 const isLegacy = !(typeof loaded.v === "number" && loaded.v >= 4);
 let droppedRanks = 0;
@@ -1127,13 +1129,7 @@ return parts.length ? ` (${parts.join("; ")})` : "";
 }
 function getBlockReason(catKey, idx) {
 const structural = structuralLockReason(catKey, idx);
-if (structural) return structural.text;
-const aa = getList(catKey)[idx];
-const rank = effectiveRank(catKey, idx);
-const nextCost = costNum(aa.costs[rank]);
-const remaining = state.totalPoints - spentPoints();
-if (remaining < nextCost) return `Not enough AA points remaining (need ${nextCost}).`;
-return null;
+return structural ? structural.text : null;
 }
 function isDependedOn(category, idx, currentRank) {
 const newRank = currentRank - 1;
@@ -1365,7 +1361,6 @@ return {
 v: SAVE_FORMAT_VERSION,
 selectedClasses: state.selectedClasses,
 charLevel: state.charLevel,
-totalPoints: state.totalPoints,
 ranks: serializeRanks(state.ranks),
 purchaseOrder: serializePurchaseOrder(state.purchaseOrder),
 waypoints: state.waypoints
@@ -1475,10 +1470,7 @@ document.getElementById("classSelect1"),
 document.getElementById("classSelect2")
 ];
 el.levelInput = document.getElementById("levelInput");
-el.totalPointsInput = document.getElementById("totalPointsInput");
 el.spentValue = document.getElementById("spentValue");
-el.totalDisplayValue = document.getElementById("totalDisplayValue");
-el.remainingValue = document.getElementById("remainingValue");
 el.estimatedNote = document.getElementById("estimatedNote");
 el.browseToggle = document.getElementById("browseToggle");
 el.exportBtn = document.getElementById("exportBtn");
@@ -1570,19 +1562,14 @@ renderSidePanel();
 function renderTopbar() {
 populateClassSelects();
 el.levelInput.value = state.charLevel;
-el.totalPointsInput.value = state.totalPoints;
 const spent = spentPoints();
-const remaining = state.totalPoints - spent;
-el.totalDisplayValue.textContent = state.totalPoints;
-el.remainingValue.textContent = `(${remaining} remaining)`;
-el.remainingValue.classList.toggle("over", remaining < 0);
 const extra = estimatedExtraPoints();
 if (extra > 0) {
 el.spentValue.textContent = `~${spent + extra}`;
 el.spentValue.classList.add("is-estimate");
 el.spentValue.title = `${spent} confirmed + ${extra} from pattern-inferred estimates on ranks you've already picked whose real cost isn't confirmed on the wiki yet.`;
 el.estimatedNote.textContent = `+${extra} from estimates`;
-el.estimatedNote.title = `${el.spentValue.title} Never counted toward affordability anywhere (that still uses the real ${spent}) — shown for reference only.`;
+el.estimatedNote.title = `${el.spentValue.title} Never added to the real spent total anywhere — shown for reference only.`;
 el.estimatedNote.classList.remove("hidden");
 } else {
 el.spentValue.textContent = spent;
@@ -1874,8 +1861,7 @@ return `
 }
 function renderSummary() {
 const spent = spentPoints();
-const remaining = state.totalPoints - spent;
-el.summaryHeader.innerHTML = `<div class="summary-meta">Classes: <b>${state.selectedClasses.map(escapeHtml).join(" / ")}</b> &middot; Character Level <b>${state.charLevel}</b> &middot; Points Spent: <b>${spent} / ${state.totalPoints}</b> (${remaining} remaining)</div>`;
+el.summaryHeader.innerHTML = `<div class="summary-meta">Classes: <b>${state.selectedClasses.map(escapeHtml).join(" / ")}</b> &middot; Character Level <b>${state.charLevel}</b> &middot; Points Spent: <b>${spent}</b></div>`;
 const sections = AA_CATEGORY_KEYS.map((key) => ({ key, label: shortCategoryLabel(key) }));
 let html = "";
 let anyPicked = false;
@@ -1984,7 +1970,7 @@ if (!Number.isFinite(rawPts) || rawPts < 0) {
 showToast("Enter a point total of 0 or more.");
 return;
 }
-const pts = Math.min(rawPts, MAX_TOTAL_POINTS);
+const pts = Math.min(rawPts, MAX_WAYPOINT_PTS);
 const colliding = state.waypoints.find((w) => w.pts === pts && w.pts !== editingWaypointPts);
 if (colliding) {
 const desc = colliding.label ? `"${colliding.label}"` : "the unnamed waypoint";
@@ -2422,7 +2408,6 @@ const payload = {
 v: BUILD_CODE_VERSION,
 c: state.selectedClasses.map((name) => CLASS_LIST.indexOf(name)),
 l: state.charLevel,
-t: state.totalPoints,
 r: compactRanksFor(state.ranks),
 p: compactPurchaseOrder
 };
@@ -2456,7 +2441,6 @@ return {
 v: SAVE_FORMAT_VERSION,
 selectedClasses: (compact.c || []).map((i) => CLASS_LIST[i]).filter(Boolean),
 charLevel: compact.l,
-totalPoints: compact.t,
 ranks: expandCompactRanks(compact.r),
 purchaseOrder,
 waypoints: compact.w || [],
@@ -2562,7 +2546,7 @@ const spent = spentPoints();
 const lines = [];
 lines.push("EverQuest Legends - AA Build");
 lines.push(`Classes: ${state.selectedClasses.join(" / ")}`);
-lines.push(`Points Spent: ${spent} / ${state.totalPoints}`);
+lines.push(`Points Spent: ${spent}`);
 lines.push(`Exported: ${new Date().toLocaleString()}`);
 lines.push("");
 AA_CATEGORY_KEYS.forEach((catKey) => {
@@ -2753,12 +2737,6 @@ renderAll();
 el.levelInput.addEventListener("change", () => {
 const v = parseInt(el.levelInput.value, 10);
 state.charLevel = isNaN(v) ? state.charLevel : Math.max(1, Math.min(50, v));
-saveLocal();
-renderAll();
-});
-el.totalPointsInput.addEventListener("change", () => {
-const v = parseInt(el.totalPointsInput.value, 10);
-state.totalPoints = isNaN(v) ? state.totalPoints : Math.max(0, Math.min(MAX_TOTAL_POINTS, v));
 saveLocal();
 renderAll();
 });

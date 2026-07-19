@@ -770,16 +770,12 @@ export function loadIssuesSuffix(result, repaired) {
   return parts.length ? ` (${parts.join("; ")})` : "";
 }
 
-// Full reason a rank can't be purchased right now, including affordability.
+// Full reason a rank can't be purchased right now (prereqs, level gates,
+// structural locks). No points-remaining check here - there's no total
+// point pool to run out of; the app tracks and displays spent points only.
 export function getBlockReason(catKey, idx) {
   const structural = structuralLockReason(catKey, idx);
-  if (structural) return structural.text;
-  const aa = getList(catKey)[idx];
-  const rank = effectiveRank(catKey, idx);
-  const nextCost = costNum(aa.costs[rank]);
-  const remaining = state.totalPoints - spentPoints();
-  if (remaining < nextCost) return `Not enough AA points remaining (need ${nextCost}).`;
-  return null;
+  return structural ? structural.text : null;
 }
 
 export function isDependedOn(category, idx, currentRank) {

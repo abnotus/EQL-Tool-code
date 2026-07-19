@@ -59,7 +59,6 @@ function buildCodeObject(includeOwned) {
     v: BUILD_CODE_VERSION,
     c: state.selectedClasses.map((name) => CLASS_LIST.indexOf(name)),
     l: state.charLevel,
-    t: state.totalPoints,
     r: compactRanksFor(state.ranks),
     p: compactPurchaseOrder
   };
@@ -110,7 +109,13 @@ function expandCompactPayload(compact) {
     v: SAVE_FORMAT_VERSION,
     selectedClasses: (compact.c || []).map((i) => CLASS_LIST[i]).filter(Boolean),
     charLevel: compact.l,
-    totalPoints: compact.t,
+    // An older share code/link may still carry a `t` (totalPoints) field -
+    // simply never read into anything here, same graceful-ignore as any
+    // other field a decoder doesn't recognize. No BUILD_CODE_VERSION bump
+    // needed for either direction: an old link decoded by today's app just
+    // drops it; a new link decoded by an old app leaves totalPoints
+    // undefined, which that app's own applyLoaded already treated as "no
+    // change" for anything that wasn't a valid number.
     ranks: expandCompactRanks(compact.r),
     purchaseOrder,
     // Raw [pts, label] pairs, or absent on an older link/build predating
@@ -280,7 +285,7 @@ export async function buildExportText(includeOwned) {
   const lines = [];
   lines.push("EverQuest Legends - AA Build");
   lines.push(`Classes: ${state.selectedClasses.join(" / ")}`);
-  lines.push(`Points Spent: ${spent} / ${state.totalPoints}`);
+  lines.push(`Points Spent: ${spent}`);
   lines.push(`Exported: ${new Date().toLocaleString()}`);
   lines.push("");
 

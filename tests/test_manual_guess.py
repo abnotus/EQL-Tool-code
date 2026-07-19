@@ -60,19 +60,22 @@ with sync_playwright() as p:
 
     # --- Buying the manually-guessed rank must cost costNum('?') == 0, not
     # the guessed 4 - manual guesses must never leak into real point math,
-    # same structural guarantee as algorithmic guesses. "remaining" is the
-    # number guaranteed to stay real; the headline spentValue is now
-    # allowed to blend in the guess for display (test_estimated_total.py). ---
-    remaining_before = page.locator("#remainingValue").inner_text()
+    # same structural guarantee as algorithmic guesses. The headline
+    # spentValue blends in the guess for display (test_estimated_total.py);
+    # Progression's own running total (built straight from costNum(), never
+    # a guess) is the number guaranteed to stay real - check that directly. ---
     page.click("#incBtn")  # buy rank2 (real cost "?", math treats as 0)
     page.wait_for_timeout(50)
-    remaining_after = page.locator("#remainingValue").inner_text()
-    print("remaining before/after buying the manually-guessed rank (must be identical):", remaining_before, remaining_after)
-    assert remaining_after == remaining_before, f"FAIL: a manual guess leaked into real cost math, remaining changed to {remaining_after}"
     spent_after = page.locator("#spentValue").inner_text()
-    print("spentValue after buying the manually-guessed rank (now blends in the guess for display):", spent_after)
+    print("spentValue after buying the manually-guessed rank (blends in the guess for display):", spent_after)
     assert spent_after == "~7", "FAIL: expected the headline to blend real 3 + guessed 4"
-    print("PASS: the manual guess never affects spentPoints()/remaining - real math still treats '?' as 0, only the headline display blends it")
+    page.click('button[data-tab="progression"]')
+    page.wait_for_timeout(50)
+    real_total = page.locator(".progression-row .cost-total").last.inner_text()
+    print("Progression's real running total after buying the manually-guessed rank (must stay real 3, not 7):", real_total)
+    assert real_total == "3 total", f"FAIL: a manual guess leaked into real cost math, running total shows {real_total}"
+    print("PASS: the manual guess never affects spentPoints() anywhere in the app - real math still treats '?' as 0, only the topbar headline blends it")
+    page.click('button[data-tab="general"]')
 
     # --- Innate Spell Resistance: costs = [2, ?, ?, ?, ?], only rank1 known
     # (less signal than any other manual AA) - MANUAL_GUESSES gives rank2

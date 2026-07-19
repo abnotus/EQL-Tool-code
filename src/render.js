@@ -1,6 +1,6 @@
 // All DOM rendering. Reads from `state` and the logic layer, writes to `el.*`.
 
-import { state, AA_CATEGORY_KEYS, CLASS_SLOT_KEYS, LAST_SEEN_VERSION_KEY, WAYPOINT_COLORS, MAX_TOTAL_POINTS } from "./state.js";
+import { state, AA_CATEGORY_KEYS, CLASS_SLOT_KEYS, LAST_SEEN_VERSION_KEY, WAYPOINT_COLORS, MAX_WAYPOINT_PTS } from "./state.js";
 import { USER_CHANGELOG } from "./changelogData.js";
 import { el } from "./dom.js";
 import {
@@ -43,29 +43,20 @@ export function renderAll() {
 function renderTopbar() {
   populateClassSelects();
   el.levelInput.value = state.charLevel;
-  el.totalPointsInput.value = state.totalPoints;
   const spent = spentPoints();
-  // remaining is deliberately always real-math (state.totalPoints - spent),
-  // never the blended estimate below - it's the number that answers "how
-  // many more points can I actually still allocate", which is exactly the
-  // real affordability math everywhere else in the app, and must never
-  // imply a guess changes that.
-  const remaining = state.totalPoints - spent;
-  el.totalDisplayValue.textContent = state.totalPoints;
-  el.remainingValue.textContent = `(${remaining} remaining)`;
-  el.remainingValue.classList.toggle("over", remaining < 0);
 
   const extra = estimatedExtraPoints();
   if (extra > 0) {
-    // The headline number itself becomes the blended real+estimate total,
-    // colored to match - a guess is still never added to spentPoints()
-    // anywhere in real math (remaining above is proof: it stays keyed to
-    // the real `spent`), this is purely how the topbar's own number reads.
+    // The headline number blends real + estimate for display - a guess is
+    // still never added to spentPoints() itself anywhere in real math
+    // (nothing gates a purchase on a point total anymore, but spentPoints()
+    // is still what the Progression tab's running totals and owned/to-go
+    // split are built from), this is purely how the topbar's own number reads.
     el.spentValue.textContent = `~${spent + extra}`;
     el.spentValue.classList.add("is-estimate");
     el.spentValue.title = `${spent} confirmed + ${extra} from pattern-inferred estimates on ranks you've already picked whose real cost isn't confirmed on the wiki yet.`;
     el.estimatedNote.textContent = `+${extra} from estimates`;
-    el.estimatedNote.title = `${el.spentValue.title} Never counted toward affordability anywhere (that still uses the real ${spent}) — shown for reference only.`;
+    el.estimatedNote.title = `${el.spentValue.title} Never added to the real spent total anywhere — shown for reference only.`;
     el.estimatedNote.classList.remove("hidden");
   } else {
     el.spentValue.textContent = spent;
@@ -427,8 +418,7 @@ export function renderBrowse() {
 
 function renderSummary() {
   const spent = spentPoints();
-  const remaining = state.totalPoints - spent;
-  el.summaryHeader.innerHTML = `<div class="summary-meta">Classes: <b>${state.selectedClasses.map(escapeHtml).join(" / ")}</b> &middot; Character Level <b>${state.charLevel}</b> &middot; Points Spent: <b>${spent} / ${state.totalPoints}</b> (${remaining} remaining)</div>`;
+  el.summaryHeader.innerHTML = `<div class="summary-meta">Classes: <b>${state.selectedClasses.map(escapeHtml).join(" / ")}</b> &middot; Character Level <b>${state.charLevel}</b> &middot; Points Spent: <b>${spent}</b></div>`;
 
   const sections = AA_CATEGORY_KEYS.map((key) => ({ key, label: shortCategoryLabel(key) }));
 
@@ -626,8 +616,8 @@ export function handleSaveWaypoint() {
   // Clamped the same way sanitizeWaypoints itself will - checking the
   // collision below against the pre-clamp value would miss the case where
   // an enormous typed total lands on an existing waypoint only *after*
-  // being clamped to MAX_TOTAL_POINTS.
-  const pts = Math.min(rawPts, MAX_TOTAL_POINTS);
+  // being clamped to MAX_WAYPOINT_PTS.
+  const pts = Math.min(rawPts, MAX_WAYPOINT_PTS);
   // A different waypoint already sitting at this exact total would
   // otherwise be silently overwritten - its label and color just vanish
   // with no trace, the moment this save goes through. Same "ask before

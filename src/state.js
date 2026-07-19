@@ -3,12 +3,11 @@
 
 import { keyForIdx, idxForKey, currentIdxForLegacyIdx, aaAt } from "./keys.js";
 
-// A build's totalPoints is a planning input the user sets themselves, but it's
-// also read from untrusted sources (a pasted share link isn't something we
-// generated), so it still gets an upper bound — generous enough that no real
-// build ever approaches it, tight enough that a bogus value doesn't produce
-// nonsense in the UI.
-export const MAX_TOTAL_POINTS = 100000;
+// A waypoint's point total is read from untrusted sources too (a pasted
+// share link isn't something we generated), so it still gets an upper
+// bound — generous enough that no real build ever approaches it, tight
+// enough that a bogus value doesn't produce nonsense in the UI.
+export const MAX_WAYPOINT_PTS = 100000;
 
 // Bumped whenever the persisted shape changes. v4 introduced name-based keys
 // for ranks/purchaseOrder (see keys.js) — anything below that is index-based
@@ -56,7 +55,6 @@ export const AA_CATEGORY_KEYS = ["general", "archetype", ...CLASS_SLOT_KEYS, "sp
 export let state = {
   selectedClasses: [CLASS_LIST[0], CLASS_LIST[1], CLASS_LIST[2]],
   charLevel: 50,
-  totalPoints: 1000,
   ranks: { general: {}, archetype: {}, special: {}, classes: {} },
   purchaseOrder: [], // [{ scope: 'general'|'archetype'|'special'|'class', className?: string, idx: number }, ...] in click order
   // Real-world "I've actually trained this" watermark, same shape as ranks
@@ -185,7 +183,7 @@ function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
 
 // Generous enough that no real user approaches it, tight enough that a
 // hostile pasted code/link can't inject an unbounded array (same spirit as
-// MAX_TOTAL_POINTS above).
+// MAX_WAYPOINT_PTS above).
 const MAX_WAYPOINTS = 200;
 
 // Curated palette rather than a free color picker - a handful of
@@ -229,7 +227,7 @@ export function sanitizeWaypoints(list) {
     else return;
     const pts = parseInt(rawPts, 10);
     if (!Number.isFinite(pts) || pts < 0) return;
-    const clamped = Math.min(pts, MAX_TOTAL_POINTS);
+    const clamped = Math.min(pts, MAX_WAYPOINT_PTS);
     const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim().slice(0, 60) : null;
     const color = typeof rawColor === "string" && WAYPOINT_COLOR_KEYS.has(rawColor) ? rawColor : null;
     byPts.set(clamped, { label, color });
@@ -246,7 +244,6 @@ export function saveLocal() {
       v: SAVE_FORMAT_VERSION,
       selectedClasses: state.selectedClasses,
       charLevel: state.charLevel,
-      totalPoints: state.totalPoints,
       ranks: serializeRanks(state.ranks),
       purchaseOrder: serializePurchaseOrder(state.purchaseOrder),
       waypoints: state.waypoints
@@ -299,9 +296,6 @@ export function applyLoaded(loaded) {
   }
   if (typeof loaded.charLevel === "number" && !isNaN(loaded.charLevel)) {
     state.charLevel = Math.max(1, Math.min(50, loaded.charLevel));
-  }
-  if (typeof loaded.totalPoints === "number" && !isNaN(loaded.totalPoints)) {
-    state.totalPoints = Math.max(0, Math.min(MAX_TOTAL_POINTS, loaded.totalPoints));
   }
   // v4+ saves store name keys, resolved straight against today's AA_DATA.
   // Anything older stored raw indexes against the ordering AA_DATA happened

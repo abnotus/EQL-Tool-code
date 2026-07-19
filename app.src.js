@@ -483,6 +483,13 @@ function effectGuessFor(scope, className, aaIdx, progIdx, rankIdx) {
 // add a new entry at the top whenever a user-relevant change ships.
 const USER_CHANGELOG = [
   {
+    version: "1.6.2",
+    date: "2026-07-19",
+    items: [
+      "Removed the \"Total AA Points\" field and the point cap it enforced — the topbar now just shows points spent, with no artificial ceiling to set or bump into. Waypoints already cover marking a point total worth planning around, so this was one less number to manage for no real benefit."
+    ]
+  },
+  {
     version: "1.6.1",
     date: "2026-07-19",
     items: [
@@ -577,12 +584,11 @@ const USER_CHANGELOG = [
 // App-wide constants, the mutable state object, and localStorage persistence.
 // Nothing here touches the DOM — that's render.js / dom.js.
 
-// A build's totalPoints is a planning input the user sets themselves, but it's
-// also read from untrusted sources (a pasted share link isn't something we
-// generated), so it still gets an upper bound — generous enough that no real
-// build ever approaches it, tight enough that a bogus value doesn't produce
-// nonsense in the UI.
-const MAX_TOTAL_POINTS = 100000;
+// A waypoint's point total is read from untrusted sources too (a pasted
+// share link isn't something we generated), so it still gets an upper
+// bound — generous enough that no real build ever approaches it, tight
+// enough that a bogus value doesn't produce nonsense in the UI.
+const MAX_WAYPOINT_PTS = 100000;
 
 // Bumped whenever the persisted shape changes. v4 introduced name-based keys
 // for ranks/purchaseOrder (see keys.js) — anything below that is index-based
@@ -630,7 +636,6 @@ const AA_CATEGORY_KEYS = ["general", "archetype", ...CLASS_SLOT_KEYS, "special"]
 let state = {
   selectedClasses: [CLASS_LIST[0], CLASS_LIST[1], CLASS_LIST[2]],
   charLevel: 50,
-  totalPoints: 1000,
   ranks: { general: {}, archetype: {}, special: {}, classes: {} },
   purchaseOrder: [], // [{ scope: 'general'|'archetype'|'special'|'class', className?: string, idx: number }, ...] in click order
   // Real-world "I've actually trained this" watermark, same shape as ranks
@@ -759,7 +764,7 @@ function deserializePurchaseOrder(saved, entryIdOf, resolveIdx) {
 
 // Generous enough that no real user approaches it, tight enough that a
 // hostile pasted code/link can't inject an unbounded array (same spirit as
-// MAX_TOTAL_POINTS above).
+// MAX_WAYPOINT_PTS above).
 const MAX_WAYPOINTS = 200;
 
 // Curated palette rather than a free color picker - a handful of
@@ -803,7 +808,7 @@ function sanitizeWaypoints(list) {
     else return;
     const pts = parseInt(rawPts, 10);
     if (!Number.isFinite(pts) || pts < 0) return;
-    const clamped = Math.min(pts, MAX_TOTAL_POINTS);
+    const clamped = Math.min(pts, MAX_WAYPOINT_PTS);
     const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim().slice(0, 60) : null;
     const color = typeof rawColor === "string" && WAYPOINT_COLOR_KEYS.has(rawColor) ? rawColor : null;
     byPts.set(clamped, { label, color });
@@ -820,7 +825,6 @@ function saveLocal() {
       v: SAVE_FORMAT_VERSION,
       selectedClasses: state.selectedClasses,
       charLevel: state.charLevel,
-      totalPoints: state.totalPoints,
       ranks: serializeRanks(state.ranks),
       purchaseOrder: serializePurchaseOrder(state.purchaseOrder),
       waypoints: state.waypoints
@@ -873,9 +877,6 @@ function applyLoaded(loaded) {
   }
   if (typeof loaded.charLevel === "number" && !isNaN(loaded.charLevel)) {
     state.charLevel = Math.max(1, Math.min(50, loaded.charLevel));
-  }
-  if (typeof loaded.totalPoints === "number" && !isNaN(loaded.totalPoints)) {
-    state.totalPoints = Math.max(0, Math.min(MAX_TOTAL_POINTS, loaded.totalPoints));
   }
   // v4+ saves store name keys, resolved straight against today's AA_DATA.
   // Anything older stored raw indexes against the ordering AA_DATA happened
@@ -1739,16 +1740,12 @@ function loadIssuesSuffix(result, repaired) {
   return parts.length ? ` (${parts.join("; ")})` : "";
 }
 
-// Full reason a rank can't be purchased right now, including affordability.
+// Full reason a rank can't be purchased right now (prereqs, level gates,
+// structural locks). No points-remaining check here - there's no total
+// point pool to run out of; the app tracks and displays spent points only.
 function getBlockReason(catKey, idx) {
   const structural = structuralLockReason(catKey, idx);
-  if (structural) return structural.text;
-  const aa = getList(catKey)[idx];
-  const rank = effectiveRank(catKey, idx);
-  const nextCost = costNum(aa.costs[rank]);
-  const remaining = state.totalPoints - spentPoints();
-  if (remaining < nextCost) return `Not enough AA points remaining (need ${nextCost}).`;
-  return null;
+  return structural ? structural.text : null;
 }
 
 function isDependedOn(category, idx, currentRank) {
@@ -2143,7 +2140,6 @@ function buildPayload() {
     v: SAVE_FORMAT_VERSION,
     selectedClasses: state.selectedClasses,
     charLevel: state.charLevel,
-    totalPoints: state.totalPoints,
     ranks: serializeRanks(state.ranks),
     purchaseOrder: serializePurchaseOrder(state.purchaseOrder),
     // Unlike owned (deliberately NOT part of a slot's snapshot - see
@@ -2367,10 +2363,7 @@ function cacheDom() {
     document.getElementById("classSelect2")
   ];
   el.levelInput = document.getElementById("levelInput");
-  el.totalPointsInput = document.getElementById("totalPointsInput");
   el.spentValue = document.getElementById("spentValue");
-  el.totalDisplayValue = document.getElementById("totalDisplayValue");
-  el.remainingValue = document.getElementById("remainingValue");
   el.estimatedNote = document.getElementById("estimatedNote");
   el.browseToggle = document.getElementById("browseToggle");
   el.exportBtn = document.getElementById("exportBtn");
@@ -2466,29 +2459,20 @@ function renderAll() {
 function renderTopbar() {
   populateClassSelects();
   el.levelInput.value = state.charLevel;
-  el.totalPointsInput.value = state.totalPoints;
   const spent = spentPoints();
-  // remaining is deliberately always real-math (state.totalPoints - spent),
-  // never the blended estimate below - it's the number that answers "how
-  // many more points can I actually still allocate", which is exactly the
-  // real affordability math everywhere else in the app, and must never
-  // imply a guess changes that.
-  const remaining = state.totalPoints - spent;
-  el.totalDisplayValue.textContent = state.totalPoints;
-  el.remainingValue.textContent = `(${remaining} remaining)`;
-  el.remainingValue.classList.toggle("over", remaining < 0);
 
   const extra = estimatedExtraPoints();
   if (extra > 0) {
-    // The headline number itself becomes the blended real+estimate total,
-    // colored to match - a guess is still never added to spentPoints()
-    // anywhere in real math (remaining above is proof: it stays keyed to
-    // the real `spent`), this is purely how the topbar's own number reads.
+    // The headline number blends real + estimate for display - a guess is
+    // still never added to spentPoints() itself anywhere in real math
+    // (nothing gates a purchase on a point total anymore, but spentPoints()
+    // is still what the Progression tab's running totals and owned/to-go
+    // split are built from), this is purely how the topbar's own number reads.
     el.spentValue.textContent = `~${spent + extra}`;
     el.spentValue.classList.add("is-estimate");
     el.spentValue.title = `${spent} confirmed + ${extra} from pattern-inferred estimates on ranks you've already picked whose real cost isn't confirmed on the wiki yet.`;
     el.estimatedNote.textContent = `+${extra} from estimates`;
-    el.estimatedNote.title = `${el.spentValue.title} Never counted toward affordability anywhere (that still uses the real ${spent}) — shown for reference only.`;
+    el.estimatedNote.title = `${el.spentValue.title} Never added to the real spent total anywhere — shown for reference only.`;
     el.estimatedNote.classList.remove("hidden");
   } else {
     el.spentValue.textContent = spent;
@@ -2850,8 +2834,7 @@ function renderBrowse() {
 
 function renderSummary() {
   const spent = spentPoints();
-  const remaining = state.totalPoints - spent;
-  el.summaryHeader.innerHTML = `<div class="summary-meta">Classes: <b>${state.selectedClasses.map(escapeHtml).join(" / ")}</b> &middot; Character Level <b>${state.charLevel}</b> &middot; Points Spent: <b>${spent} / ${state.totalPoints}</b> (${remaining} remaining)</div>`;
+  el.summaryHeader.innerHTML = `<div class="summary-meta">Classes: <b>${state.selectedClasses.map(escapeHtml).join(" / ")}</b> &middot; Character Level <b>${state.charLevel}</b> &middot; Points Spent: <b>${spent}</b></div>`;
 
   const sections = AA_CATEGORY_KEYS.map((key) => ({ key, label: shortCategoryLabel(key) }));
 
@@ -3049,8 +3032,8 @@ function handleSaveWaypoint() {
   // Clamped the same way sanitizeWaypoints itself will - checking the
   // collision below against the pre-clamp value would miss the case where
   // an enormous typed total lands on an existing waypoint only *after*
-  // being clamped to MAX_TOTAL_POINTS.
-  const pts = Math.min(rawPts, MAX_TOTAL_POINTS);
+  // being clamped to MAX_WAYPOINT_PTS.
+  const pts = Math.min(rawPts, MAX_WAYPOINT_PTS);
   // A different waypoint already sitting at this exact total would
   // otherwise be silently overwritten - its label and color just vanish
   // with no trace, the moment this save goes through. Same "ask before
@@ -3655,7 +3638,6 @@ function buildCodeObject(includeOwned) {
     v: BUILD_CODE_VERSION,
     c: state.selectedClasses.map((name) => CLASS_LIST.indexOf(name)),
     l: state.charLevel,
-    t: state.totalPoints,
     r: compactRanksFor(state.ranks),
     p: compactPurchaseOrder
   };
@@ -3706,7 +3688,13 @@ function expandCompactPayload(compact) {
     v: SAVE_FORMAT_VERSION,
     selectedClasses: (compact.c || []).map((i) => CLASS_LIST[i]).filter(Boolean),
     charLevel: compact.l,
-    totalPoints: compact.t,
+    // An older share code/link may still carry a `t` (totalPoints) field -
+    // simply never read into anything here, same graceful-ignore as any
+    // other field a decoder doesn't recognize. No BUILD_CODE_VERSION bump
+    // needed for either direction: an old link decoded by today's app just
+    // drops it; a new link decoded by an old app leaves totalPoints
+    // undefined, which that app's own applyLoaded already treated as "no
+    // change" for anything that wasn't a valid number.
     ranks: expandCompactRanks(compact.r),
     purchaseOrder,
     // Raw [pts, label] pairs, or absent on an older link/build predating
@@ -3876,7 +3864,7 @@ async function buildExportText(includeOwned) {
   const lines = [];
   lines.push("EverQuest Legends - AA Build");
   lines.push(`Classes: ${state.selectedClasses.join(" / ")}`);
-  lines.push(`Points Spent: ${spent} / ${state.totalPoints}`);
+  lines.push(`Points Spent: ${spent}`);
   lines.push(`Exported: ${new Date().toLocaleString()}`);
   lines.push("");
 
@@ -4129,13 +4117,6 @@ function wireEvents() {
   el.levelInput.addEventListener("change", () => {
     const v = parseInt(el.levelInput.value, 10);
     state.charLevel = isNaN(v) ? state.charLevel : Math.max(1, Math.min(50, v));
-    saveLocal();
-    renderAll();
-  });
-
-  el.totalPointsInput.addEventListener("change", () => {
-    const v = parseInt(el.totalPointsInput.value, 10);
-    state.totalPoints = isNaN(v) ? state.totalPoints : Math.max(0, Math.min(MAX_TOTAL_POINTS, v));
     saveLocal();
     renderAll();
   });

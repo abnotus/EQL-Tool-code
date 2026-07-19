@@ -1,6 +1,6 @@
 // All addEventListener wiring, run once from main.js after cacheDom().
 
-import { state, CLASS_SLOT_KEYS, DISCLAIMER_DISMISSED_KEY, MAX_TOTAL_POINTS, saveLocal } from "./state.js";
+import { state, CLASS_SLOT_KEYS, DISCLAIMER_DISMISSED_KEY, saveLocal } from "./state.js";
 import { el } from "./dom.js";
 import { costNum, clearClassData, clearAllOwned } from "./logic.js";
 import {
@@ -59,13 +59,6 @@ export function wireEvents() {
   el.levelInput.addEventListener("change", () => {
     const v = parseInt(el.levelInput.value, 10);
     state.charLevel = isNaN(v) ? state.charLevel : Math.max(1, Math.min(50, v));
-    saveLocal();
-    renderAll();
-  });
-
-  el.totalPointsInput.addEventListener("change", () => {
-    const v = parseInt(el.totalPointsInput.value, 10);
-    state.totalPoints = isNaN(v) ? state.totalPoints : Math.max(0, Math.min(MAX_TOTAL_POINTS, v));
     saveLocal();
     renderAll();
   });
