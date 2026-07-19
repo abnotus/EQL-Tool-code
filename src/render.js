@@ -51,18 +51,19 @@ function renderTopbar() {
     // still never added to spentPoints() itself anywhere in real math
     // (nothing gates a purchase on a point total anymore, but spentPoints()
     // is still what the Progression tab's running totals and owned/to-go
-    // split are built from), this is purely how the topbar's own number reads.
+    // split are built from), this is purely how the topbar's own number
+    // reads. The ~ prefix alone signals "this includes an estimate" (same
+    // shorthand every per-rank guess in the app already uses); the
+    // breakdown lives in the tooltip rather than a second visible element,
+    // matching how every other estimate badge here discloses confidence
+    // detail on hover instead of inline.
     el.spentValue.textContent = `~${spent + extra}`;
     el.spentValue.classList.add("is-estimate");
-    el.spentValue.title = `${spent} confirmed + ${extra} from pattern-inferred estimates on ranks you've already picked whose real cost isn't confirmed on the wiki yet.`;
-    el.estimatedNote.textContent = `+${extra} from estimates`;
-    el.estimatedNote.title = `${el.spentValue.title} Never added to the real spent total anywhere — shown for reference only.`;
-    el.estimatedNote.classList.remove("hidden");
+    el.spentValue.title = `${spent} confirmed + ${extra} estimated.`;
   } else {
     el.spentValue.textContent = spent;
     el.spentValue.classList.remove("is-estimate");
     el.spentValue.removeAttribute("title");
-    el.estimatedNote.classList.add("hidden");
   }
   el.browseToggle.classList.toggle("active", state.activeView === "browse");
   const activeId = getActiveBuildId();

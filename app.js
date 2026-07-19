@@ -335,7 +335,8 @@ const USER_CHANGELOG = [
 version: "1.6.2",
 date: "2026-07-19",
 items: [
-"Removed the \"Total AA Points\" field and the point cap it enforced — the topbar now just shows points spent, with no artificial ceiling to set or bump into. Waypoints already cover marking a point total worth planning around, so this was one less number to manage for no real benefit."
+"Removed the \"Total AA Points\" field and the point cap it enforced — the topbar now just shows points spent, with no artificial ceiling to set or bump into. Waypoints already cover marking a point total worth planning around, so this was one less number to manage for no real benefit.",
+"When that number includes pattern-inferred estimates, the breakdown now lives in its tooltip only (hover for \"167 confirmed + 32 estimated\") instead of a second number next to it — same hover-to-disclose pattern as every other estimate badge in the app."
 ]
 },
 {
@@ -1471,7 +1472,6 @@ document.getElementById("classSelect2")
 ];
 el.levelInput = document.getElementById("levelInput");
 el.spentValue = document.getElementById("spentValue");
-el.estimatedNote = document.getElementById("estimatedNote");
 el.browseToggle = document.getElementById("browseToggle");
 el.exportBtn = document.getElementById("exportBtn");
 el.importBtn = document.getElementById("importBtn");
@@ -1567,15 +1567,11 @@ const extra = estimatedExtraPoints();
 if (extra > 0) {
 el.spentValue.textContent = `~${spent + extra}`;
 el.spentValue.classList.add("is-estimate");
-el.spentValue.title = `${spent} confirmed + ${extra} from pattern-inferred estimates on ranks you've already picked whose real cost isn't confirmed on the wiki yet.`;
-el.estimatedNote.textContent = `+${extra} from estimates`;
-el.estimatedNote.title = `${el.spentValue.title} Never added to the real spent total anywhere — shown for reference only.`;
-el.estimatedNote.classList.remove("hidden");
+el.spentValue.title = `${spent} confirmed + ${extra} estimated.`;
 } else {
 el.spentValue.textContent = spent;
 el.spentValue.classList.remove("is-estimate");
 el.spentValue.removeAttribute("title");
-el.estimatedNote.classList.add("hidden");
 }
 el.browseToggle.classList.toggle("active", state.activeView === "browse");
 const activeId = getActiveBuildId();

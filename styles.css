@@ -128,24 +128,13 @@ select:focus, input:focus {
 /* #spentValue is an ID selector, so this wins over the inherited
    .points-display .value red trivially - no specificity war needed, unlike
    the compound overrides elsewhere in this file. Same flat "guess concept"
-   blue as .estimated-note below and the disclaimer banner's own estimate
-   callout, since this headline number blends however many different
-   confidence tiers are currently purchased-but-unconfirmed - no single
-   tier color would mean anything here. */
+   blue as the disclaimer banner's own estimate callout, since this headline
+   number blends however many different confidence tiers are currently
+   purchased-but-unconfirmed - no single tier color would mean anything
+   here. The ~ prefix plus this color are the only visual cue; the
+   confirmed/estimated breakdown lives in the title tooltip, same
+   hover-to-disclose pattern as every other estimate badge in the app. */
 #spentValue.is-estimate {
-  color: var(--estimate-high);
-}
-
-/* Aggregates across however many different confidence tiers are currently
-   purchased-but-unconfirmed, so - unlike the per-rank displays - a single
-   tier color wouldn't mean anything here. Reuses the same flat treatment
-   the disclaimer banner's own estimate callout and the next-rank box's
-   guessed cost figure already use for "this is the guess concept",
-   regardless of which specific tier(s) contributed to it. */
-.points-display .estimated-note {
-  margin-left: 6px;
-  font-size: 12px;
-  font-style: italic;
   color: var(--estimate-high);
 }
 

@@ -7,7 +7,8 @@ export const USER_CHANGELOG = [
     version: "1.6.2",
     date: "2026-07-19",
     items: [
-      "Removed the \"Total AA Points\" field and the point cap it enforced — the topbar now just shows points spent, with no artificial ceiling to set or bump into. Waypoints already cover marking a point total worth planning around, so this was one less number to manage for no real benefit."
+      "Removed the \"Total AA Points\" field and the point cap it enforced — the topbar now just shows points spent, with no artificial ceiling to set or bump into. Waypoints already cover marking a point total worth planning around, so this was one less number to manage for no real benefit.",
+      "When that number includes pattern-inferred estimates, the breakdown now lives in its tooltip only (hover for \"167 confirmed + 32 estimated\") instead of a second number next to it — same hover-to-disclose pattern as every other estimate badge in the app."
     ]
   },
   {

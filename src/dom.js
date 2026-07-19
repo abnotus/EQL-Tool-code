@@ -10,7 +10,6 @@ export function cacheDom() {
   ];
   el.levelInput = document.getElementById("levelInput");
   el.spentValue = document.getElementById("spentValue");
-  el.estimatedNote = document.getElementById("estimatedNote");
   el.browseToggle = document.getElementById("browseToggle");
   el.exportBtn = document.getElementById("exportBtn");
   el.importBtn = document.getElementById("importBtn");
