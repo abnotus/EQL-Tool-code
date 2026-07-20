@@ -1,6 +1,6 @@
 {
   "pageid": 56762,
-  "revid": 158923,
+  "revid": 159028,
   "abilities": {
     "general::Adamant Will::0": {
       "ranks": "4",
@@ -380,10 +380,10 @@
     "archetype::Fury of Magic::0": {
       "ranks": "4",
       "costs": [
-        "1",
         "2",
-        "3",
-        "4"
+        "4",
+        "7",
+        "10"
       ],
       "description": "This passive ability increases your chance to land a critical hit with your direct damage spells by 2%. Requirements: level 1."
     },

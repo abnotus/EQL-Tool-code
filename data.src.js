@@ -51,7 +51,7 @@ const AA_DATA = {
     { name: "Double Riposte", ranks: 3, costs: ["3","6","9"], levelReq: "15", description: "Grants 5%/10%/15% double riposte chance." },
     { name: "Exodus", ranks: 1, costs: ["6"], levelReq: "10", description: "Teleports group members within 100 feet to a safe zone location." },
     { name: "Finishing Blow", ranks: 3, costs: ["2","4","6"], levelReq: "1", description: "Critical melee attacks deal 100/200/300% damage to level 50/53/55 or lower NPCs at 10/12/15% or less health." },
-    { name: "Fury of Magic", ranks: 4, costs: ["1","2","3","4"], levelReq: "1", description: "Increases critical hit chance with direct damage spells by 2% per rank." },
+    { name: "Fury of Magic", ranks: 4, costs: ["2","4","7","10"], levelReq: "1", description: "Increases critical hit chance with direct damage spells by 2% per rank." },
     { name: "Healing Adept", ranks: 3, costs: ["2","2","2"], levelReq: "1", description: "Increases instant-duration healing spell effectiveness by 2% per rank." },
     { name: "Healing Boon", ranks: 3, costs: ["3","6","9"], levelReq: "1", description: "Increases HoT exceptional heal chance by 3/6/9%." },
     { name: "Healing Gift", ranks: 3, costs: ["2","4","6"], levelReq: "1", description: "Grants instant healing spells 3%/6%/10% exceptional heal chance." },
