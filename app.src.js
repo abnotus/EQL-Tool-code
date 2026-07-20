@@ -483,13 +483,6 @@ function effectGuessFor(scope, className, aaIdx, progIdx, rankIdx) {
 // add a new entry at the top whenever a user-relevant change ships.
 const USER_CHANGELOG = [
   {
-    version: "1.6.3",
-    date: "2026-07-20",
-    items: [
-      "Data correction from a fresh wiki scrape: Fury of Magic's per-rank costs are now confirmed as 2/4/7/10 (previously listed as 1/2/3/4)."
-    ]
-  },
-  {
     version: "1.6.2",
     date: "2026-07-19",
     items: [
