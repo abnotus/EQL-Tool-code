@@ -67,12 +67,17 @@ than clicking through the UI to build it up live — faster, and pins the
 exact scenario being tested instead of leaving it implicit in a sequence of
 clicks.
 
-`test_effect_guess.py` currently relies on Combat Fury being the one live
-AA with a guessable effect value (an interpolated gap) — if a future wiki
-scrape confirms that specific rank, regenerate `effectGuesses.js` first and
-this test will need a new live example (same as `test_cost_guess.py`'s own
-Combat Fury section had to be rewritten once its cost got confirmed - see
-that file's comments for how that played out).
+Several of these tests are pinned to specific live AAs as their guessed-value
+examples (`test_effect_guess.py`'s Alchemy Mastery, `test_cost_guess.py`'s
+Alchemy Mastery and Combat Fury, `test_guess_all_tabs.py`'s Alchemy Mastery,
+`test_manual_guess.py`'s Crafting Mastery and Spell Casting Subtlety) — a
+future wiki scrape confirming one of those specific ranks will break that
+test, same as it's already happened more than once (Adamant Will, Combat
+Stability, and Combat Fury's effect value all resolved to real data and had
+to be swapped out for a still-live example over the course of this project).
+Regenerate `costGuesses.js`/`effectGuesses.js` first, then pick a fresh
+example from whichever guess table still has one - see the affected test's
+own comments for how the swap played out last time.
 
 None of these are wired into CI; run them by hand after a change that
 touches either guessing feature (`wiki-sync/guess_costs.py` or
