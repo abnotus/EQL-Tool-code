@@ -616,8 +616,9 @@ const OWNED_STORAGE_KEY = "eql_aa_owned_v1";
 // re-showing even to someone who already dismissed the old wording - a
 // flat "dismissed" flag has no notion of *which* text was dismissed, so
 // the only way to force a re-acknowledgment is a new key nobody's set yet.
-// v2 added the pattern-inferred cost estimate mention.
-const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed_v4";
+// v2 added the pattern-inferred cost estimate mention. v5 dropped the
+// "during beta" framing now that the tool isn't in beta anymore.
+const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed_v5";
 // Every prior wording's dismiss flag, orphaned in a long-time user's
 // storage forever the moment a rewording bumps DISCLAIMER_DISMISSED_KEY -
 // nothing ever reads these again, they just sit there. Removed once on
@@ -628,6 +629,7 @@ const STALE_DISCLAIMER_KEYS = [
   "eql_aa_disclaimer_dismissed",
   "eql_aa_disclaimer_dismissed_v2",
   "eql_aa_disclaimer_dismissed_v3",
+  "eql_aa_disclaimer_dismissed_v4",
 ];
 
 function cleanupStaleStorageKeys() {

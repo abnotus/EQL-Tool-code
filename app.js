@@ -444,11 +444,12 @@ const MAX_WAYPOINT_PTS = 100000;
 const SAVE_FORMAT_VERSION = 4;
 const STORAGE_KEY = "eql_aa_builder_v1";
 const OWNED_STORAGE_KEY = "eql_aa_owned_v1";
-const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed_v4";
+const DISCLAIMER_DISMISSED_KEY = "eql_aa_disclaimer_dismissed_v5";
 const STALE_DISCLAIMER_KEYS = [
 "eql_aa_disclaimer_dismissed",
 "eql_aa_disclaimer_dismissed_v2",
 "eql_aa_disclaimer_dismissed_v3",
+"eql_aa_disclaimer_dismissed_v4",
 ];
 function cleanupStaleStorageKeys() {
 try {
