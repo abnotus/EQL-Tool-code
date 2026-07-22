@@ -84,4 +84,6 @@ touches either guessing feature (`wiki-sync/guess_costs.py` or
 `wiki-sync/guess_effects.py`, their consumers in `src/keys.js`/
 `src/logic.js`/`src/render.js`, the disclaimer banner, the topbar, or
 Progression's own blended running total / the plain-text export mirroring
-it) before rebuilding and committing.
+it), or class-rank-cap logic (`classRankCapFor`, `structuralLockReason`,
+`heldRankInvalidReason`, `effectiveDisplayRank`, `computeProgressionSteps`'s
+`classCapWarn` - `test_class_rank_cap.py`) before rebuilding and committing.
